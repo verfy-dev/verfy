@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.23.1
+    rev: cli-v0.24.0
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.23.1" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.24.0" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -298,6 +298,38 @@ verfy team status
 ```
 
 Devices enrolled with 0.8.0 or later upload on their own: after the hook or the gateway writes a receipt, Verfy starts `verfy sync` in the background, at most every five minutes, and writes what happened to `~/.verfy/sync.log`. Devices enrolled earlier keep uploading only with `verfy sync` until you run `verfy team auto-sync on`. Only the public key is sent at enrollment. The device token is stored in `~/.verfy/team.json` (0600). Receipts are uploaded exactly as signed; they contain only hashes of arguments unless you enabled `receipts.include_args`, in which case `sync` needs `--allow-args`.
+
+## Receipts for any agent
+
+Any program can sign a receipt for an action it took: a refund, an email sent, a row deleted, a deploy. It is a `verfy.receipt/1` receipt with the same key and chain as the hook's, so `verfy verify`, verfy.dev/verify and Verfy Cloud check it like any other.
+
+```python
+import verfy
+
+rec = verfy.Recorder(agent="refund-bot")       # key and ledger in ~/.verfy (or $VERFY_HOME), made on first use
+rec.record("refund", system="stripe", kind="payment", args={"order": "A-1042", "amount": 4999})
+
+@rec.track("send_email", system="gmail", kind="message")   # every call; a raised exception is recorded as "error"
+def send_email(to, subject, body): ...
+
+with rec.action("delete_rows", system="postgres", kind="delete", args={"table": "carts"}) as act:
+    act.result = db.execute("delete from carts where ...")
+
+url = rec.share()            # Verfy Cloud: a link anyone can open to check the last receipt
+url = rec.share_agent()      # ...or this key's whole record, as numbers
+```
+
+```bash
+verfy record refund --system stripe --kind payment --args '{"order": "A-1042"}'   # from any language
+verfy share [last | rcpt_… | SEQ] [--agent] [--expires-days N]
+verfy witness verify proof.json      # Verfy's signed witness statement and the receipt in a downloaded proof
+```
+
+- **Only hashes leave the machine.** Arguments and results are kept as salted SHA-256 hashes unless you pass `include_args=True` (secrets are then redacted). Decimal, datetime, UUID, sets, dataclasses and pydantic models are recorded as data; integers beyond JavaScript's safe range become text, so every engine signs the same bytes.
+- **A record never blocks an upload.** Anything Verfy Cloud would refuse (text over 200 characters, a receipt over 12 KB, a NUL character, a value that is not data) is refused with `RecordError` before anything is written.
+- **Recording never undoes the action.** `track` and `action` record a failed call as `error` and raise the exception again. If the record itself fails after the action ran, it is logged and the program carries on (`on_error="raise"` to raise instead). Threads and processes can record at once; the chain never forks.
+- **Uploads.** `upload="auto"` (default) uploads in the background on an enrolled machine, at most every five minutes, as the hook does; `"now"` after every record; `"off"` only when you call `rec.sync()`.
+- **What it proves.** Who signed the record, in what order, and that it was not changed; on a share link, Verfy's witness statement adds when Verfy first received it. It does not prove the action happened as described: the program that took it says so. A record's `decision.policy_sha256` is `"none"`: no Verfy policy decided it.
 
 ## Use it with a sandbox
 

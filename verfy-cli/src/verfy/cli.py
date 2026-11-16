@@ -39,6 +39,7 @@ from .mcp_client import MCPError, expand, list_tools, list_tools_http
 from .policy import DEFAULT_POLICY, TEMPLATES, load_policy, policy_digest, tighten
 from .precheck import check
 from .receipts import Key, Ledger, key_id, public_from, read_ledger, receipt_hash, salted_digest, verify_ledger
+from .recorder import RecordError
 from .scanner import scan, tool_pin
 
 EXIT = {"allow": 0, "ask": 1, "deny": 2}
@@ -719,6 +720,122 @@ def cmd_scitt_verify(args) -> int:
             bad += 1
             print(f"{c('FAILED', '31;1')}  {f}: {e}")
     return 1 if bad else 0
+
+
+# ---------------------------------------------------------------- record / share / witness
+
+def _json_arg(text: str | None, flag: str, stdin_used: list[bool]):
+    """--args / --result: JSON text, @file or - for standard input (only one of them)."""
+    if text is None:
+        return None
+    if text == "-":
+        if stdin_used:
+            raise SystemExit("verfy record: only one of --args and --result can read standard input")
+        stdin_used.append(True)
+        text = sys.stdin.read()
+    elif text.startswith("@"):
+        text = Path(text[1:]).read_text("utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"verfy record: {flag} is not valid JSON: {e}") from None
+
+
+def cmd_record(args) -> int:
+    from .recorder import Recorder
+    used: list[bool] = []
+    a, res = _json_arg(args.args, "--args", used), _json_arg(args.result, "--result", used)
+    session = args.session or os.environ.get("VERFY_SESSION") or "cli"
+    rec = Recorder(args.agent, home=verfy_home(), session=session, include_args=args.include_args,
+                   upload="off" if args.share else "auto")
+    receipt = rec.record(args.action, system=args.system, kind=args.kind, args=a, result=res, status=args.status,
+                         approved_by=args.approved_by)
+    url = rec.share(receipt, expires_in_days=args.expires_days, label=args.label) if args.share else None
+    if args.json:
+        print(json.dumps({"receipt": receipt, "share_url": url}, indent=2, ensure_ascii=False))
+        return 0
+    act = receipt["action"]
+    where = f"{act['server']}/{act['tool']}" if act["server"] else act["tool"]
+    print(f"Recorded {receipt['id']} (seq {receipt['seq']}): {where} {receipt['outcome']['status']}, signed by {receipt['kid']}")
+    if url:
+        print(f"Share link: {url}")
+    return 0
+
+
+def _pick_receipt(receipts: list[dict], which: str) -> dict:
+    if which == "last":
+        return receipts[-1]
+    if which.startswith("rcpt_"):
+        found = [r for r in receipts if r.get("id") == which]
+    else:
+        try:
+            seq = int(which.lstrip("#"))
+        except ValueError:
+            raise SystemExit(f"verfy share: {which!r} is not last, a receipt id (rcpt_...) or a seq number") from None
+        found = [r for r in receipts if r.get("seq") == seq]
+    if not found:
+        raise SystemExit(f"verfy share: no receipt {which} in this ledger")
+    return found[-1]
+
+
+def cmd_share(args) -> int:
+    from .recorder import Recorder
+    if not home_file("key.json").exists():
+        raise SystemExit("verfy share: no signing key yet. Run `verfy init`, or record something first.")
+    rec = Recorder(home=verfy_home(), upload="off")
+    if args.agent:
+        url, what = rec.share_agent(expires_in_days=args.expires_days, label=args.label), f"the record of {rec.kid}"
+    else:
+        receipts = [r for r in read_ledger(rec.ledger_path) if isinstance(r, dict) and r.get("kid") == rec.kid]
+        if not receipts:
+            raise SystemExit("verfy share: this machine has no receipts yet")
+        target = _pick_receipt(receipts, args.receipt)
+        url, what = rec.share(target, expires_in_days=args.expires_days, label=args.label), f"receipt {target['id']} (seq {target['seq']})"
+    if args.json:
+        print(json.dumps({"url": url}))
+    else:
+        print(f"Anyone with this link can check {what}:\n{url}")
+    return 0
+
+
+def cmd_witness_verify(args) -> int:
+    from . import witness
+    text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text("utf-8")
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"verfy witness verify: not valid JSON: {e}") from None
+    if args.key:
+        pub = public_from(args.key)
+        keys = {witness.witness_kid(pub): pub}
+    else:
+        try:
+            keys = witness.fetch_keys(args.key_url)
+        except Exception as e:  # noqa: BLE001
+            raise SystemExit(f"verfy witness verify: could not read the witness keys from {args.key_url}: {e}. "
+                             "Pass --key with the key instead.") from None
+    res = witness.check_proof(doc, keys)
+    if args.json:
+        print(json.dumps({k: v for k, v in res.items() if k != "statement"}, indent=2))
+        return 0 if res["ok"] else 1
+    st = res["statement"] if isinstance(res["statement"], dict) else {}
+    subject = st.get("subject") if isinstance(st.get("subject"), dict) else {}
+    chain = subject.get("chain") if isinstance(subject.get("chain"), dict) else {}
+    if res["ok"]:
+        print(f"{c('VERIFIED', '32;1')}  Verfy's witness statement is signed by {st.get('kid')} ({st.get('issuer', '?')}, {st.get('issued_at', '?')}).")
+    else:
+        print(f"{c('FAILED', '31;1')}  {len(res['errors'])} problem(s):")
+        for e in res["errors"]:
+            print(f"  {e}")
+    if st.get("type") == "receipt":
+        r = subject.get("receipt") if isinstance(subject.get("receipt"), dict) else {}
+        print(f"  receipt  {r.get('hash')}  seq {r.get('seq')} of chain {chain.get('id')}; first reached Verfy {r.get('received_at')}")
+        if res["receipt"] is True:
+            print("  receipt  the receipt in the file is that one, and its own signature checks with the device key")
+    elif st.get("type") == "agent":
+        n = (subject.get("counts") or {}).get("receipts") if isinstance(subject.get("counts"), dict) else None
+        print(f"  agent    chain {chain.get('id')}: {n} receipts from {chain.get('first_issued_at')} to {chain.get('last_issued_at')}, head seq {chain.get('head_seq')}")
+    return 0 if res["ok"] else 1
 
 
 # ---------------------------------------------------------------- lock
@@ -2236,6 +2353,40 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--key")
     x.set_defaults(fn=cmd_scitt_verify)
 
+    p = sub.add_parser("record", help="sign a receipt for any action a program or agent took (a refund, an email, a deploy)")
+    p.add_argument("action", help="what was done, for example refund or send_email")
+    p.add_argument("--system", default="", help="what it was done to, for example stripe or gmail")
+    p.add_argument("--kind", default="other", help="one word: payment, message, write, delete, read, exec, network, deploy, access, data, other")
+    p.add_argument("--args", help="the arguments as JSON, @file or - (standard input); only their salted hash is kept unless --include-args")
+    p.add_argument("--result", help="the result as JSON, @file or -; only its salted hash is kept")
+    p.add_argument("--status", choices=["ok", "error"], default="ok")
+    p.add_argument("--agent", help="the agent's name (default $VERFY_AGENT, else agent)")
+    p.add_argument("--session", help="the session or run id (default $VERFY_SESSION, else cli)")
+    p.add_argument("--approved-by", help="who approved the action, if a person did")
+    p.add_argument("--include-args", action="store_true", help="keep the arguments in the receipt (secrets redacted)")
+    p.add_argument("--share", action="store_true", help="upload now and print a link anyone can open to check this receipt (Verfy Cloud)")
+    p.add_argument("--expires-days", type=int, help="with --share: the link stops working after this many days")
+    p.add_argument("--label", help="with --share: a note shown in the dashboard's list of links")
+    p.add_argument("--json", action="store_true", help="print the signed receipt (and the link) as JSON")
+    p.set_defaults(fn=cmd_record)
+
+    p = sub.add_parser("share", help="a link anyone can open to check one receipt, or this device's whole record (Verfy Cloud)")
+    p.add_argument("receipt", nargs="?", default="last", help="last (default), a receipt id rcpt_... or a seq number")
+    p.add_argument("--agent", action="store_true", help="share this device's whole record instead: counts, kinds, dates, chain intact")
+    p.add_argument("--expires-days", type=int, help="the link stops working after this many days")
+    p.add_argument("--label", help="a note shown in the dashboard's list of links")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_share)
+
+    p = sub.add_parser("witness", help="check Verfy Cloud's signed witness statement about a receipt or an agent")
+    wt = p.add_subparsers(dest="witness_cmd", metavar="action")
+    x = wt.add_parser("verify", help="check the JSON a share link or the verification API gave (or - for standard input)")
+    x.add_argument("file")
+    x.add_argument("--key", help="Verfy's witness public key (base64url); default: read it from --key-url")
+    x.add_argument("--key-url", default="https://verfy.dev/.well-known/verfy-witness.json")
+    x.add_argument("--json", action="store_true")
+    x.set_defaults(fn=cmd_witness_verify)
+
     p = sub.add_parser("lock", help="Verfy Lock: pinned MCP tool definitions and drift")
     lk = p.add_subparsers(dest="lock_cmd", metavar="action")
     x = lk.add_parser("status", help="locked vs last seen digests (exit 2 on drift)")
@@ -2429,7 +2580,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     args.cmd = cmd_after
     if not hasattr(args, "fn"):
-        if getattr(args, "command_name", None) in ("ledger", "lock", "team", "scitt"):
+        if getattr(args, "command_name", None) in ("ledger", "lock", "team", "scitt", "witness"):
             ap.parse_args([args.command_name, "--help"])
         ap.print_help()
         return 0
@@ -2448,6 +2599,9 @@ def main(argv: list[str] | None = None) -> int:
     except locks.LockError as e:
         print(f"verfy: {e}", file=sys.stderr)
         return 2
+    except RecordError as e:
+        print(f"verfy {args.command_name}: {e}", file=sys.stderr)
+        return 3
     except (ValueError, KeyError, TypeError, AttributeError, OSError, RecursionError) as e:
         if os.environ.get("VERFY_DEBUG"):
             raise
