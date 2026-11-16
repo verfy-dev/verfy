@@ -1,0 +1,32 @@
+{
+  "seed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "public": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "kid": "vw_56475aa75463474c",
+  "statement": {
+    "v": "verfy.witness/1",
+    "kid": "vw_56475aa75463474c",
+    "type": "receipt",
+    "issuer": "https://verfy.dev",
+    "issued_at": "2026-11-16T10:00:00.000Z",
+    "subject": {
+      "receipt": {
+        "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "id": "rcpt_0123456789abcdef",
+        "seq": 7,
+        "issued_at": "2026-11-16T09:59:58.123Z",
+        "received_at": "2026-11-16T09:59:59.456Z",
+        "signature": "valid"
+      },
+      "chain": {
+        "id": "atl_0123456789abcdef",
+        "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "head_seq": 12,
+        "head_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "device_status": "active"
+      }
+    },
+    "note": "Verfy received this receipt at received_at. Ünïcode ✓ 10.5",
+    "sig": "aTnMM8sn8SQkvK0T-M4fC31eq2AyFHLlJhUmGK_Ga-k1PZeJWWjs4MRdov8VpyvwSQ4HR91-SDmIeYqiZMS3CQ"
+  },
+  "canonical": "{\"issued_at\":\"2026-11-16T10:00:00.000Z\",\"issuer\":\"https://verfy.dev\",\"kid\":\"vw_56475aa75463474c\",\"note\":\"Verfy received this receipt at received_at. Ünïcode ✓ 10.5\",\"subject\":{\"chain\":{\"device_status\":\"active\",\"head_hash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"head_seq\":12,\"id\":\"atl_0123456789abcdef\",\"public_key\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"},\"receipt\":{\"hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"id\":\"rcpt_0123456789abcdef\",\"issued_at\":\"2026-11-16T09:59:58.123Z\",\"received_at\":\"2026-11-16T09:59:59.456Z\",\"seq\":7,\"signature\":\"valid\"}},\"type\":\"receipt\",\"v\":\"verfy.witness/1\"}"
+}

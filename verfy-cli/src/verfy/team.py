@@ -26,6 +26,7 @@ import json
 import os
 import platform
 import random
+import re
 import socket
 import subprocess
 import sys
@@ -293,6 +294,35 @@ def _client(home: Path, transport: Transport | None = None) -> TeamClient:
     if team is None:
         raise TeamError("this device is not enrolled; run `verfy team enroll`")
     return TeamClient(team["url"], team["token"], transport=transport, retries=2)
+
+
+SHARE_KINDS = ("receipt", "agent")
+
+
+def create_share(home: Path, kind: str, *, receipt_hash: str | None = None, expires_in_days: int | None = None,
+                 label: str | None = None, transport: Transport | None = None) -> dict:
+    """Ask Verfy Cloud for a link anyone can open: one receipt of this device (by its hash), or this device's whole
+    record ("agent"). The receipt must be uploaded already. Returns ``{"id", "kind", "url", "expires_at"}``."""
+    if kind not in SHARE_KINDS:
+        raise TeamError(f"a share is a {' or '.join(SHARE_KINDS)}")
+    body: dict[str, Any] = {"kind": kind}
+    if kind == "receipt":
+        if not isinstance(receipt_hash, str) or not receipt_hash.startswith("sha256:") or len(receipt_hash) != 71:
+            raise TeamError("a receipt share needs the receipt's sha256: hash")
+        body["receipt_hash"] = receipt_hash
+    if expires_in_days is not None:
+        if isinstance(expires_in_days, bool) or not isinstance(expires_in_days, int) or not 1 <= expires_in_days <= 3650:
+            raise TeamError("expires_in_days must be a whole number from 1 to 3650")
+        body["expires_in_days"] = expires_in_days
+    if label:
+        body["label"] = str(label)[:80]
+    # a retried POST could make a second link, so one retry at most
+    res = _client(home, transport).call("POST", "/api/v1/shares", body)
+    url = res.get("url") if isinstance(res, dict) else None
+    u = urlparse(url) if isinstance(url, str) else None
+    if u is None or not u.hostname or (u.scheme != "https" and u.hostname not in LOCAL_HOSTS) or not re.fullmatch(r"/[ra]/vs_[A-Za-z0-9_-]{32}", u.path):
+        raise TeamError("the team service did not answer with a share link")
+    return {"id": res.get("id"), "kind": res.get("kind", kind), "url": url, "expires_at": res.get("expires_at")}
 
 
 def registry_report(home: Path, pins: list[str], transport: Transport | None = None) -> int:
