@@ -39,6 +39,7 @@ from urllib.parse import urlparse
 
 from ._util import redact
 from .fileio import atomic_write
+from .deals import is_reference
 from .receipts import Key, b64u, read_ledger, receipt_hash
 
 BATCH_MAX = 500
@@ -181,7 +182,7 @@ def sync(home: Path, ledger_path: Path, key: Key, *, allow_args: bool = False, t
     if done >= 0 and done < len(receipts) and state.get("head") != receipt_hash(receipts[done]):
         raise TeamError("the local ledger no longer matches what was uploaded (edited or replaced); run `verfy ledger verify`")
     pending = receipts[done + 1:]
-    if not allow_args and any(isinstance(r.get("action"), dict) and "args" in r["action"] for r in pending):
+    if not allow_args and any(isinstance(r.get("action"), dict) and "args" in r["action"] and not is_reference(r["action"]["args"]) for r in pending):
         raise TeamError("some receipts contain tool arguments (include_args); pass --allow-args to upload them anyway")
     client = TeamClient(team["url"], team["token"], transport=transport)
     accepted = duplicates = 0

@@ -838,6 +838,158 @@ def cmd_witness_verify(args) -> int:
     return 0 if res["ok"] else 1
 
 
+def _read_json_arg(path: str, what: str):
+    text = sys.stdin.read() if path == "-" else Path(path).read_text("utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"verfy {what}: not valid JSON: {e}") from None
+
+
+def cmd_deal_verify(args) -> int:
+    from .deals import verify_deal
+    res = verify_deal(_read_json_arg(args.file, "deal verify"))
+    if args.json:
+        print(json.dumps(res, indent=2))
+    elif res["ok"]:
+        print(f"{c('VERIFIED', '32;1')}  deal {res['deal']}: offered by {res['offer_kid']}, accepted by {res['accept_kid']}, both signed the same terms.")
+    else:
+        print(f"{c('FAILED', '31;1')}  deal {res['deal']}:")
+        for e in res["errors"]:
+            print(f"  {e}")
+    return 0 if res["ok"] else 1
+
+
+def _log_client(args):
+    from . import tlog
+    from .witness import witness_kid
+    keys = None
+    if getattr(args, "key", None):
+        pub = public_from(args.key)
+        keys = {witness_kid(pub): pub}
+    try:
+        return tlog.Log(args.url, keys=keys, home=verfy_home())
+    except tlog.LogError as e:
+        raise SystemExit(f"verfy log: {e}") from None
+
+
+def _hash_arg(value: str) -> str:
+    """A receipt hash given directly, or the hash of the receipt in a JSON file (or - for standard input)."""
+    from .receipts import receipt_hash
+    if value.startswith("sha256:"):
+        return value
+    doc = _read_json_arg(value, "log prove")
+    if isinstance(doc, dict) and isinstance(doc.get("receipt"), dict):
+        doc = doc["receipt"]
+    if not isinstance(doc, dict) or "sig" not in doc:
+        raise SystemExit("verfy log prove: give a receipt hash (sha256:...) or a file holding a signed receipt")
+    return receipt_hash(doc)
+
+
+def cmd_log_prove(args) -> int:
+    from . import tlog
+    log = _log_client(args)
+    h = _hash_arg(args.receipt)
+    try:
+        res = log.prove(h, args.size)
+    except tlog.LogError as e:
+        if args.json:
+            print(json.dumps({"ok": False, "hash": h, "error": str(e)}, indent=2))
+        else:
+            print(f"{c('FAILED', '31;1')}  {e}")
+        return 1
+    if args.save:
+        Path(args.save).write_text(json.dumps(res["proof"], indent=2) + "\n", "utf-8")
+    if args.json:
+        print(json.dumps({"ok": True, **{k: v for k, v in res.items() if k != "proof"}}, indent=2))
+        return 0
+    head = res["head"]
+    print(f"{c('VERIFIED', '32;1')}  {h}")
+    print(f"  is leaf {res['index']} of Verfy's log of {res['tree_size']} receipts, in the head {head.get('kid')} signed at {head.get('issued_at')}")
+    if res["consistency_checks"]:
+        print(f"  and that log only added to the {res['consistency_checks']} head(s) this machine saw before")
+    return 0
+
+
+def cmd_log_watch(args) -> int:
+    from . import tlog
+    log = _log_client(args)
+    try:
+        res = log.watch()
+    except tlog.LogError as e:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(e)}, indent=2))
+        else:
+            print(f"{c('FAILED', '31;1')}  {e}")
+        return 1
+    if args.json:
+        print(json.dumps({"ok": True, **{k: v for k, v in res.items() if k != "head"}}, indent=2))
+        return 0
+    print(f"{c('OK', '32;1')}  Verfy's log holds {res['tree_size']} receipts (head signed {res['issued_at']} by {res['kid']}).")
+    if res["consistency_checks"]:
+        print("  It only added to the heads this machine saw before.")
+    else:
+        print("  This is the first head this machine has seen; later checks compare against it.")
+    return 0
+
+
+def cmd_incident_export(args) -> int:
+    from . import incident, tlog
+    if not home_file("key.json").exists():
+        raise SystemExit("verfy incident: this machine has no key yet, so it has no receipts")
+    key = Key.load(home_file("key.json"))
+    try:
+        log = tlog.Log(args.url, home=verfy_home()) if args.prove else None
+        pack = incident.build_pack(home_file("ledger.jsonl"), key.public, since=args.since, until=args.until, agent=args.agent,
+                                   note=args.note, log=log)
+    except (incident.IncidentError, tlog.LogError) as e:
+        raise SystemExit(f"verfy incident: {e}") from None
+    text = json.dumps(pack, indent=2, ensure_ascii=False) + "\n"
+    if args.output == "-":
+        sys.stdout.write(text)
+        return 0
+    Path(args.output).write_text(text, "utf-8")
+    n = len(pack["receipts"])
+    proved = f"; {len(pack['log']['proofs'])} with Verfy's log proof" if "log" in pack else ""
+    print(f"Wrote {args.output}: {n} receipt(s), seq {pack['receipts'][0]['seq']} to {pack['receipts'][-1]['seq']}{proved}")
+    if "log" in pack and pack["log"]["not_in_log"]:
+        print(f"  {len(pack['log']['not_in_log'])} receipt(s) are not in Verfy's log yet (run verfy sync, then export again)")
+    return 0
+
+
+def cmd_incident_verify(args) -> int:
+    from . import incident, tlog, witness
+    pack = _read_json_arg(args.file, "incident verify")
+    keys = None
+    if args.key:
+        pub = public_from(args.key)
+        keys = {witness.witness_kid(pub): pub}
+    elif isinstance(pack, dict) and isinstance(pack.get("log"), dict) and not args.offline:
+        try:
+            keys = tlog.Log(str(pack["log"].get("url") or tlog.DEFAULT_LOG_URL), home=verfy_home()).keys
+        except Exception as e:  # noqa: BLE001
+            raise SystemExit(f"verfy incident verify: could not read the witness keys: {e}. "
+                             "Pass --key, or --offline to skip the log proofs.") from None
+    res = incident.verify_pack(pack, keys)
+    if args.json:
+        print(json.dumps(res, indent=2))
+        return 0 if res["ok"] else 1
+    if res["ok"]:
+        print(f"{c('VERIFIED', '32;1')}  {res['receipts']} receipt(s), seq {res['first_seq']} to {res['last_seq']}: "
+              "every signature checks and none is missing.")
+        if res["log_checked"]:
+            print(f"  {res['in_log']} of them are in Verfy's signed log (earliest head {res['earliest_head']}).")
+    else:
+        print(f"{c('FAILED', '31;1')}  {len(res['errors'])} problem(s):")
+        for e in res["errors"]:
+            print(f"  {e}")
+    return 0 if res["ok"] else 1
+
+def cmd_deal_hash(args) -> int:
+    from .canonical import digest
+    print(digest(_read_json_arg(args.file, "deal hash")))
+    return 0
+
 # ---------------------------------------------------------------- lock
 
 LSTAT = {"ok": "32", "drift": "31;1", "changed": "31;1", "new": "33", "removed": "36", "unpinned": "33"}
@@ -2387,6 +2539,48 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--json", action="store_true")
     x.set_defaults(fn=cmd_witness_verify)
 
+    p = sub.add_parser("log", help="Verfy's public transparency log: prove a receipt is in it, check it only grows")
+    lg = p.add_subparsers(dest="log_cmd", metavar="action")
+    x = lg.add_parser("prove", help="fetch and check the proof that Verfy's signed log holds a receipt")
+    x.add_argument("receipt", help="a receipt hash (sha256:...) or a JSON file holding the receipt (- for standard input)")
+    x.add_argument("--size", type=int, help="prove against the signed head of this size (default: the newest)")
+    x.add_argument("--save", metavar="FILE", help="also write the proof to FILE, to check again later offline")
+    x.set_defaults(fn=cmd_log_prove)
+    x2 = lg.add_parser("watch", help="check the newest signed head extends every head this machine saw before")
+    x2.set_defaults(fn=cmd_log_watch)
+    for y in (x, x2):
+        y.add_argument("--url", default="https://verfy.dev/api/v1/log", help="the log (default: %(default)s)")
+        y.add_argument("--key", help="Verfy's witness public key (base64url); default: read it from the log's site")
+        y.add_argument("--json", action="store_true")
+
+    p = sub.add_parser("incident", help="one file with the evidence for a stretch of an agent's work, and checking it")
+    ic = p.add_subparsers(dest="incident_cmd", metavar="action")
+    x = ic.add_parser("export", help="pack every receipt in a time window as one unbroken run of the chain")
+    x.add_argument("--since", help="ISO 8601 start, such as 2026-11-16T09:00:00Z (default: the first receipt)")
+    x.add_argument("--until", help="ISO 8601 end (default: the last receipt)")
+    x.add_argument("--agent", help="span this agent's first to last receipt in the window")
+    x.add_argument("--note", help="a line saying what the pack is about")
+    x.add_argument("--prove", action="store_true", help="add Verfy's transparency-log proof for each receipt")
+    x.add_argument("--url", default="https://verfy.dev/api/v1/log", help="the log for --prove (default: %(default)s)")
+    x.add_argument("-o", "--output", default="incident.json", help="where to write it (- for standard output; default: %(default)s)")
+    x.set_defaults(fn=cmd_incident_export)
+    x = ic.add_parser("verify", help="check a pack: signatures, no gaps, and its log proofs")
+    x.add_argument("file", help="the pack (or - for standard input)")
+    x.add_argument("--key", help="Verfy's witness public key (base64url) for the log proofs")
+    x.add_argument("--offline", action="store_true", help="do not fetch the witness keys; log proofs are then not checked")
+    x.add_argument("--json", action="store_true")
+    x.set_defaults(fn=cmd_incident_verify)
+
+    p = sub.add_parser("deal", help="two-party records: check a deal both agents signed, or hash a payment mandate")
+    dl = p.add_subparsers(dest="deal_cmd", metavar="action")
+    x = dl.add_parser("verify", help="check both signatures, the terms and the link between the two receipts")
+    x.add_argument("file", help="the deal JSON (or - for standard input)")
+    x.add_argument("--json", action="store_true")
+    x.set_defaults(fn=cmd_deal_verify)
+    x = dl.add_parser("hash", help="the mandate_sha256 a payment receipt names for this JSON document")
+    x.add_argument("file")
+    x.set_defaults(fn=cmd_deal_hash)
+
     p = sub.add_parser("lock", help="Verfy Lock: pinned MCP tool definitions and drift")
     lk = p.add_subparsers(dest="lock_cmd", metavar="action")
     x = lk.add_parser("status", help="locked vs last seen digests (exit 2 on drift)")
@@ -2580,7 +2774,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     args.cmd = cmd_after
     if not hasattr(args, "fn"):
-        if getattr(args, "command_name", None) in ("ledger", "lock", "team", "scitt", "witness"):
+        if getattr(args, "command_name", None) in ("ledger", "lock", "team", "scitt", "witness", "deal", "log", "incident"):
             ap.parse_args([args.command_name, "--help"])
         ap.print_help()
         return 0
