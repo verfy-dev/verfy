@@ -353,7 +353,7 @@ decision = rec.guard("refund", kind="payment", args={"amount": 900})   # or chec
 - It fails closed: a limit whose number is missing counts as over, and an approver that cannot be reached declines. Daily totals are kept per agent on this machine, under a lock, so two processes cannot both spend the last of a limit.
 - Rules also come from `~/.verfy/policy.json` and the team policy (`"actions": [...]`). The format: [docs/spec/rules.md](../docs/spec/rules.md).
 
-### LangChain and the OpenAI Agents SDK
+### LangChain, the OpenAI Agents SDK and CrewAI
 
 ```python
 from verfy.integrations.langchain import VerfyCallbackHandler
@@ -361,9 +361,13 @@ agent.invoke({"input": "..."}, config={"callbacks": [VerfyCallbackHandler(rec, k
 
 from verfy.integrations.openai_agents import VerfyRunHooks
 await Runner.run(agent, "Refund order A-1042", hooks=VerfyRunHooks(rec, kinds={"refund": "payment"}))
+
+from verfy.integrations.crewai import VerfyCrewHooks
+with VerfyCrewHooks(rec, kinds={"refund": "payment"}):     # or .register() for every crew in the process
+    crew.kickoff()
 ```
 
-Every tool call becomes a receipt, with the recorder's rules checked first: a call they stop raises `ActionDenied` and the tool does not run. Neither framework is a dependency of Verfy (`pip install "verfy[langchain]"` or `"verfy[openai-agents]"` to get them).
+Every tool call becomes a receipt, with the recorder's rules checked first: a call they stop raises `ActionDenied` and the tool does not run. None of the frameworks is a dependency of Verfy (`pip install "verfy[langchain]"`, `"verfy[openai-agents]"` or `"verfy[crewai]"` to get them). CrewAI ignores an exception raised in a hook and runs the tool anyway, so Verfy's CrewAI hook never raises: a call it cannot check is blocked, and the agent reads Verfy's reason instead of a result.
 
 ### Node.js
 

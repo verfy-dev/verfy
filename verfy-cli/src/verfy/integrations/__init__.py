@@ -2,6 +2,7 @@
 
 - ``verfy.integrations.langchain.VerfyCallbackHandler``: a LangChain callback handler (LangChain, LangGraph).
 - ``verfy.integrations.openai_agents.VerfyRunHooks``: run hooks for the OpenAI Agents SDK.
+- ``verfy.integrations.crewai.VerfyCrewHooks``: tool-call hooks for CrewAI.
 
 Each records every tool call as a signed receipt through a ``verfy.Recorder`` and, when the recorder has rules
 (``Recorder(rules=[...])`` or the team's policy), checks them before the tool runs: a call they stop raises
@@ -55,6 +56,12 @@ class ToolCalls:
                 raise
         with self._lock:
             self._open[call_id] = (name, args, decision)
+
+    def drop(self, call_id: Any) -> None:
+        """Forget a call that never ran, without a receipt."""
+        with self._lock:
+            self._open.pop(call_id, None)
+            self._stopped.discard(call_id)
 
     def end(self, call_id: Any, name: str | None, ok: bool, value: Any) -> dict | None:
         with self._lock:

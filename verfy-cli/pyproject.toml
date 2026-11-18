@@ -36,6 +36,7 @@ Security = "https://github.com/verfy-dev/verfy-releases/blob/main/SECURITY.md"
 fast = ["cryptography>=43"]
 langchain = ["langchain-core>=0.3"]
 openai-agents = ["openai-agents>=0.2"]
+crewai = ["crewai>=1.15"]
 
 [project.scripts]
 verfy = "verfy.cli:main"
