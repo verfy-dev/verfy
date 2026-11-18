@@ -405,7 +405,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
   var FIND_FILTERS = ["-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-newer", "-mtime", "-mmin", "-size"];
   var BAD_SCHEMES = ["gopher", "dict", "ldap", "ldaps", "tftp", "netdoc", "jar"];
   var PRIVATE_HOST = /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|169\.254\.|f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:)/;
-  var NETWORK_CMDS = ["curl", "wget", "nc", "ncat", "netcat", "scp", "rsync", "ftp", "sftp", "http", "https", "httpie", "telnet", "socat", "aria2c", "Invoke-WebRequest", "iwr", "irm"];
+  var NETWORK_CMDS = ["curl", "wget", "nc", "ncat", "netcat", "scp", "rsync", "ftp", "sftp", "http", "https", "httpie", "telnet", "socat", "aria2c", "Invoke-WebRequest", "iwr", "irm", "nslookup", "dig", "host", "drill", "Resolve-DnsName"];
   var READERS = ["cat", "less", "more", "head", "tail", "base64", "xxd", "od", "strings", "grep", "egrep", "rg", "awk", "sed", "cut", "sort", "uniq", "tac", "nl", "bat", "jq", "gpg", "openssl", "cp", "scp", "rsync", "tar", "zip", "7z", "source", "."];
   var SYSTEM_DIRS = ["/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64", "/opt", "/proc", "/root", "/sbin", "/srv", "/sys", "/usr", "/var", "/System", "/Library", "/Applications", "/Users", "/private"];
   var WINDOWS_DIRS = ["/c/windows", "/c/program files", "/c/program files (x86)", "/c/programdata", "/c/users"];
@@ -1283,6 +1283,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     (pol.rules || []).forEach(function (r) {
       var tp = r.tool || "*";
       if (!nameMatch(tp, full) && !nameMatch(tp, tool)) return;
+      if (r.kind && r.kind !== kind) return; // e.g. "shell": a command, not a file that mentions one
       var pat = rx(r.pattern, r.flags || ""), strs = flattenStrings(args);
       for (var i = 0; i < strs.length; i++) {
         if (r.arg && strs[i][0] !== r.arg) continue;

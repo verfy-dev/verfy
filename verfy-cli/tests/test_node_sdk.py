@@ -4,6 +4,7 @@ the other. Skipped where Node.js is not installed. Run from verfy-cli/: ``python
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -54,6 +55,27 @@ class NodeRecorder(unittest.TestCase):
         rec.record("after-node")
         self.assertTrue(verify_ledger(read_ledger(home / "ledger.jsonl"), key.public)["ok"])
 
+    def test_vercel_ai_sdk_tools(self):
+        home = self.dir / "ai"
+        env = {k: v for k, v in os.environ.items() if k != "AI_SDK_DIR"}
+        if os.environ.get("AI_SDK_DIR"):  # a folder with `ai` and `zod` installed: also a real generateText run
+            env["AI_SDK_DIR"] = os.environ["AI_SDK_DIR"]
+        p = subprocess.run([NODE, str(ROOT / "tests" / "ai_sdk_run.mjs"), str(home)], capture_output=True, text=True,
+                           encoding="utf-8", timeout=120, env=env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        out = json.loads(p.stdout)
+        self.assertEqual((out["direct"], out["untouched"], out["rethrown"]), ({"refunded": 20}, True, "not found"))
+        self.assertTrue(out["check"]["ok"])
+        key = Key.load(home / "key.json")
+        receipts = read_ledger(home / "ledger.jsonl")
+        self.assertEqual([(r["action"]["tool"], r["action"]["kind"], r["outcome"]["status"]) for r in receipts[:2]],
+                         [("refund", "payment", "ok"), ("lookup", "other", "error")])
+        self.assertEqual(receipts[0]["action"]["args_sha256"], salted_digest({"order": "A-1", "amount": 20}, key.hash_salt()))
+        self.assertEqual(receipts[0]["action"]["server"], "ai-sdk")
+        if "real" in out:
+            self.assertEqual((out["real"], receipts[2]["action"]["tool"]), ("done", "refund"))
+            self.assertEqual(receipts[2]["action"]["args_sha256"], salted_digest({"order": "C-3", "amount": 5}, key.hash_salt()))
+
     def test_python_receipts_check_in_node(self):
         rec = Recorder(agent="py-bot", home=self.dir / "py", upload="off")
         for i in range(4):
@@ -65,6 +87,24 @@ class NodeRecorder(unittest.TestCase):
         tampered = self.dir / "tampered.jsonl"
         tampered.write_text("\n".join([lines[0], lines[2], lines[3]]) + "\n", "utf-8")
         self.assertEqual(self.node("verify", str(tampered), rec.public_key).returncode, 1)
+
+    def test_the_npm_package(self):
+        out = self.dir / "pkg"
+        p = subprocess.run([NODE, str(ROOT.parent / "scripts" / "build-npm.mjs"), str(out)], capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        pkg = json.loads((out / "package.json").read_text("utf-8"))
+        version = next(ln.split('"')[1] for ln in (ROOT / "pyproject.toml").read_text("utf-8").splitlines() if ln.startswith("version = "))
+        self.assertEqual((pkg["name"], pkg["version"]), ("@verfy-dev/receipts", version))
+        for target in [e["default"] for e in pkg["exports"].values()] + [e["types"] for e in pkg["exports"].values()]:
+            self.assertTrue((out / target).exists(), target)
+        home = self.dir / "pkg-home"
+        script = ("import(process.argv[1]).then(async (m) => { const r = new m.Recorder({ agent: 'pkg', home: process.argv[2] });"
+                  " await r.record('x', { args: { n: 1 } }); console.log(JSON.stringify(await r.verify())); });")
+        run = subprocess.run([NODE, "-e", script, (out / "verfy-node.mjs").as_uri(), str(home)], capture_output=True, text=True,
+                             encoding="utf-8", timeout=120, cwd=str(self.dir))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(json.loads(run.stdout)["ok"])
+        self.assertTrue(verify_ledger(read_ledger(home / "ledger.jsonl"), Key.load(home / "key.json").public)["ok"])
 
 
 if __name__ == "__main__":

@@ -40,6 +40,23 @@ removed from that side's ledger later without the chain breaking.
 Rules (see [rules.md](rules.md)) are checked against the terms on both sides before signing: an accept that a rule
 denies raises `ActionDenied` and signs nothing.
 
+### Verfy as the deal's witness
+
+A marketplace, a payment service or an arbitrator holding a deal sends it to `POST /api/v1/verify/deals` with a
+verifier key. Verfy checks it as above, says when each side's receipt first reached it (`received_at`, or `null` if
+that side never uploaded it) and where it is in the public [log](log.md) (`log_index`), and for a deal that checks
+signs a [`verfy.witness/1`](witness.md) statement of type `deal`:
+
+```json
+{"type": "deal",
+ "subject": {"deal": "deal_…", "terms_sha256": "sha256:…",
+             "offer":  {"hash": "sha256:…", "kid": "atl_…", "received_at": "…", "log_index": 18200},
+             "accept": {"hash": "sha256:…", "kid": "atl_…", "received_at": "…", "log_index": 18342}}}
+```
+
+`verfy deal verify deal.json --online` (verifier key in `VERFY_VERIFIER_KEY`) does both checks and the statement's
+signature. The statement names no organization and no terms.
+
 ## Payments tied to a mandate
 
 ```python

@@ -39,6 +39,11 @@ outcome and kind. No action names or arguments.
 
 **`tree_head`**: the transparency log's size and root, see [log.md](log.md).
 
+**`incident`**: which receipts of an incident pack Verfy holds for the asking organization, see
+[incident.md](incident.md).
+
+**`deal`**: a deal both agents signed, and when each side reached Verfy, see [deal.md](deal.md).
+
 ## Checking
 
 Fetch the keys (over HTTPS), find the key with the statement's `kid`, and verify `sig`. For a `receipt` statement

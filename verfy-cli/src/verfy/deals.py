@@ -104,5 +104,33 @@ def verify_deal(deal: Any) -> dict:
     return out
 
 
+def witness_deal(deal: Any, *, verifier_key: str, url: str = "https://verfy.dev", transport: Any = None,
+                 keys: dict[str, bytes] | None = None) -> dict:
+    """Ask Verfy Cloud (the verification API, with a verifier key ``vk_...``) to check a deal and say when each
+    side's receipt reached it. A deal that checks comes back with Verfy's signed statement (type "deal"), whose
+    signature is checked here against ``keys`` (default: the keys published at ``url``)."""
+    from . import witness
+    from .team import TeamClient, TeamError
+    if not isinstance(verifier_key, str) or not verifier_key.startswith("vk_"):
+        raise DealError("a verifier key starts with vk_ (make one under Usage & API in Verfy Cloud)")
+    client = TeamClient(url, verifier_key, transport=transport, retries=2)
+    try:
+        res = client.call("POST", "/api/v1/verify/deals", {"deal": deal})
+    except TeamError as e:
+        raise DealError(str(e)) from None
+    if not isinstance(res, dict):
+        raise DealError("Verfy Cloud did not answer with a deal check")
+    st = res.get("witness")
+    if st is not None:
+        if keys is None:
+            data = client.call("GET", "/.well-known/verfy-witness.json")
+            keys = witness.keys_from(data)
+        key = keys.get(st.get("kid")) if isinstance(st, dict) else None
+        subject = st.get("subject") if isinstance(st, dict) else None
+        if key is None or not witness.verify_statement(st, key) or not isinstance(subject, dict) or subject.get("deal") != res.get("deal"):
+            raise DealError("Verfy's statement about the deal does not check with its published witness keys")
+    return res
+
+
 def new_deal_id() -> str:
     return "deal_" + secrets.token_hex(12)

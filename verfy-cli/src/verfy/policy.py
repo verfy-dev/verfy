@@ -55,6 +55,12 @@ def load_policy(source: str | os.PathLike | dict | None = None, *, workspace: st
     # read with the default "block" where it is used; left out of the policy so its hash, and receipts, stay the same
     if pol.get("prompt_secrets", "block") not in ("block", "off"):
         raise ValueError("prompt_secrets must be block or off")
+    # also read with its defaults where used (adaptive.settings), and left out of the default policy for the same reason
+    if "adaptive" in pol:
+        from .adaptive import settings
+        if not isinstance(pol["adaptive"], dict):
+            raise ValueError("adaptive must be an object")
+        settings(pol)
     return pol
 
 
@@ -95,6 +101,17 @@ def tighten(base: dict, project: Any) -> dict:
     out["session"]["after_outside_text"] = _stricter(out["session"].get("after_outside_text", "off"), part("session").get("after_outside_text"))
     if project.get("on_ask") == "deny":
         out["on_ask"] = "deny"
+    adaptive = part("adaptive")
+    if adaptive:
+        mine = dict(out.get("adaptive") or {})
+        if adaptive.get("escalate") == "on":
+            mine["escalate"] = "on"
+        if adaptive.get("novelty") == "ask":
+            mine["novelty"] = "ask"
+        w = adaptive.get("warmup")
+        if isinstance(w, int) and not isinstance(w, bool) and 0 <= w < mine.get("warmup", 50):
+            mine["warmup"] = w
+        out["adaptive"] = mine
     for key in ("max_per_call", "ask_above", "daily_budget"):
         v = pay.get(key)
         if isinstance(v, (int, float)) and not isinstance(v, bool) and (out["payments"].get(key) is None or v < out["payments"][key]):

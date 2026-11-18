@@ -326,6 +326,18 @@ def create_share(home: Path, kind: str, *, receipt_hash: str | None = None, expi
     return {"id": res.get("id"), "kind": res.get("kind", kind), "url": url, "expires_at": res.get("expires_at")}
 
 
+def attest_incident(home: Path, hashes: list[str], transport: Transport | None = None) -> dict:
+    """Ask Verfy Cloud to attest an incident pack: send the receipts' hashes, in order (never the receipts), and get
+    back Verfy's signed statement of which of them it holds for this organization and since when."""
+    if not hashes or len(hashes) > 10000 or not all(isinstance(h, str) and h.startswith("sha256:") and len(h) == 71 for h in hashes):
+        raise TeamError("an attestation needs 1 to 10000 receipt hashes")
+    res = _client(home, transport).call("POST", "/api/v1/incidents/attest", {"hashes": hashes})
+    st = res.get("attestation") if isinstance(res, dict) else None
+    if not isinstance(st, dict) or st.get("type") != "incident":
+        raise TeamError("the team service did not answer with an attestation")
+    return res
+
+
 def registry_report(home: Path, pins: list[str], transport: Transport | None = None) -> int:
     """Tell Verfy Registry which tool pins this team has: SHA-256 pins only, never names or definitions."""
     client = _client(home, transport)

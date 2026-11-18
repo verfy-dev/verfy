@@ -232,6 +232,36 @@ class Incident(unittest.TestCase):
         with self.assertRaises(incident.IncidentError):
             self.pack(since="yesterday")
 
+    def test_verfy_attests_a_pack(self):
+        sent = []
+
+        def attest(hashes):  # what POST /api/v1/incidents/attest answers: Verfy holds all but the last
+            sent.append(list(hashes))
+            return {"attestation": sign({"issuer": "https://verfy.example", "issued_at": "2026-11-17T08:00:00Z", "type": "incident", "subject": {
+                "receipts": {"count": len(hashes), "merkle_root": merkle.tree_root([merkle.receipt_hash_bytes(h) for h in hashes]).hex(),
+                             "known": len(hashes) - 1, "in_log": 0, "first_received_at": "2026-11-16T09:00:05Z",
+                             "last_received_at": "2026-11-16T09:04:05Z"},
+                "chains": [self.rec.kid], "unknown": hashes[-1:]}})}
+
+        p = self.pack(attest=attest)
+        self.assertEqual(sent, [[receipt_hash(r) for r in self.receipts]])  # hashes only, in chain order
+        res = incident.verify_pack(json.loads(json.dumps(p)), KEYS)
+        self.assertTrue(res["ok"], res["errors"])
+        self.assertEqual((res["attested"]["known"], res["attested"]["count"]), (5, 6))
+        self.assertIsNone(incident.verify_pack(p)["attested"])  # without the witness keys it is not checked
+        for change in ("receipts", "signature", "type"):
+            bad = json.loads(json.dumps(p))
+            if change == "receipts":
+                bad["attestation"]["subject"]["receipts"]["count"] = 5
+            elif change == "signature":
+                bad["attestation"]["issued_at"] = "2026-11-18T00:00:00Z"
+            else:
+                bad["attestation"]["type"] = "deal"
+            self.assertFalse(incident.verify_pack(bad, KEYS)["ok"], change)
+        cut = json.loads(json.dumps(p))
+        cut["receipts"] = cut["receipts"][1:]
+        self.assertIn("different list", " ".join(incident.verify_pack(cut, KEYS)["errors"]))
+
     def test_log_proofs_in_a_pack(self):
         cloud = FakeLog()
         cloud.add(*[receipt_hash(r) for r in self.receipts[:4]])

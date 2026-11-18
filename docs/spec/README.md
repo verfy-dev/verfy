@@ -11,6 +11,7 @@ interoperates with this one. They are part of the MIT-licensed project: anyone m
 | Transparency log | The append-only Merkle tree of every receipt Verfy Cloud accepted | [log.md](log.md) |
 | `verfy.deal/1` | One action two agents both sign; payments tied to a mandate | [deal.md](deal.md) |
 | `verfy.incident/1` | The evidence for a stretch of an agent's work, in one file | [incident.md](incident.md) |
+| Rule feed | Rules Verfy publishes between releases, signed | [rule-feed.md](rule-feed.md) |
 
 Two implementations exist today and are tested against each other on shared vectors:
 

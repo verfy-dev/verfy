@@ -791,6 +791,55 @@
    "\\btailscale\\s+funnel\\b",
    "",
    "Opens a tunnel from the internet to this computer."
+  ],
+  [
+   "VFY-SH-039",
+   "deny",
+   "\\b(?:nslookup|dig|host|drill|ping6?|resolve-dnsname)\\b[^;&|\\n]*(?:\\$\\([^()\\n]*\\)|`[^`\\n]*`)[A-Za-z0-9.-]*\\.[A-Za-z0-9-]+\\.[a-z]{2,}",
+   "i",
+   "Sends data out inside a DNS name built from a command's output."
+  ],
+  [
+   "VFY-SH-039",
+   "deny",
+   "\\b(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\\b[^\\n]*?https?://[^/\\s'\\\"?#]*(?:\\$\\([^()\\n]*\\)|`[^`\\n]*`)[A-Za-z0-9-]*\\.[A-Za-z0-9.-]*[a-z]{2,}",
+   "i",
+   "Sends data out in a web address whose name is built from a command's output."
+  ],
+  [
+   "VFY-SH-039",
+   "ask",
+   "\\b(?:nslookup|dig|host|drill|resolve-dnsname)\\b[^;&|\\n]*\\$\\{?[A-Za-z_][A-Za-z0-9_]*\\}?\\.[A-Za-z0-9-]+\\.[a-z]{2,}",
+   "i",
+   "A DNS lookup of a name built from a variable, which can carry data out."
+  ],
+  [
+   "VFY-SH-040",
+   "deny",
+   "(?:google[\\\\/]chrome|google-chrome|chromium|microsoft[\\\\/]edge|microsoft-edge|bravesoftware|opera software|mozilla[\\\\/]firefox|\\.mozilla|firefox[\\\\/]profiles)[^\\n]*(?:login\\\\?[ _]?data|cookies|web\\\\?[ _]?data|logins\\.json|key4\\.db|cookies\\.sqlite|local\\\\?[ _]?state)",
+   "i",
+   "Reads a browser's saved passwords or cookies."
+  ],
+  [
+   "VFY-SH-041",
+   "deny",
+   "\\b(?:eval|(?:ba|z|da|k)?sh\\s+(?:-\\S+\\s+)*-c|source|python[0-9.]*\\s+-c|node\\s+-e|perl\\s+-e)\\s+[\\\"']?\\$\\((?:[^()]|\\([^()]*\\))*(?:base64\\s+(?:-d|--decode|-D)\\b|base32\\s+-d\\b|xxd\\s+-r\\b|openssl\\s+(?:enc\\s+)?(?:-\\S+\\s+)*-d\\b|\\bgunzip\\b|\\bzcat\\b|\\brev\\b|\\btr\\s+['\\\"]?[A-Za-z]-[A-Za-z]|\\bprintf\\s+['\\\"]?\\\\x)",
+   "i",
+   "Runs code that only exists after decoding, which hides what it does."
+  ],
+  [
+   "VFY-SH-041",
+   "deny",
+   "\\b(?:python[0-9.]*|py|node|deno|bun|perl|ruby|php)\\s+(?:-\\S+\\s+)*-[cer]\\b[^\\n]*(?:(?:b64decode|base64\\.(?:b64)?decode|decodebytes|atob\\s*\\(|Buffer\\.from\\([^)]*['\\\"]base64|decode_base64|base64_decode|unhexlify|fromhex|zlib\\.decompress)[^\\n]*(?:\\bexec\\b|\\beval\\b|os\\.system|subprocess|child_process|\\bFunction\\s*\\(|\\bspawn)|(?:\\bexec\\b|\\beval\\b|os\\.system|subprocess|child_process|\\bFunction\\s*\\()[^\\n]*(?:b64decode|base64\\.(?:b64)?decode|decodebytes|atob\\s*\\(|Buffer\\.from\\([^)]*['\\\"]base64|decode_base64|base64_decode|unhexlify|fromhex|zlib\\.decompress))",
+   "i",
+   "Inline code that decodes something and runs it, which hides what it does."
+  ],
+  [
+   "VFY-SH-041",
+   "ask",
+   "\\b(?:ba|z|da|k)?sh\\s+(?:-\\S+\\s+)*-c\\s+[\\\"']?\\$\\(",
+   "i",
+   "Runs a script built from another command's output."
   ]
  ],
  "sql_patterns": [

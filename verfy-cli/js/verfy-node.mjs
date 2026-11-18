@@ -22,7 +22,9 @@ import { fileURLToPath } from "node:url";
 import { createEngine } from "./verfy-engine.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DATA = path.join(HERE, "..", "src", "verfy", "data");
+// next to this file in the npm package; in the repository, the CLI's own data
+const DATA = [path.join(HERE, "data"), path.join(HERE, "..", "src", "verfy", "data")].find((d) => fs.existsSync(path.join(d, "patterns.json")));
+if (!DATA) throw new Error("verfy: the rule data (patterns.json) is missing next to verfy-node.mjs");
 const engine = createEngine(
   JSON.parse(fs.readFileSync(path.join(DATA, "patterns.json"), "utf8")),
   JSON.parse(fs.readFileSync(path.join(DATA, "default_policy.json"), "utf8")),

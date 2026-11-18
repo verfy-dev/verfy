@@ -48,11 +48,13 @@ def _issued(r: dict) -> _dt.datetime:
 
 
 def build_pack(ledger_path: str | Path, public: bytes, *, since: str | None = None, until: str | None = None,
-               agent: str | None = None, note: str | None = None, log: Any = None) -> dict:
+               agent: str | None = None, note: str | None = None, log: Any = None, attest: Any = None) -> dict:
     """The pack for the receipts issued between ``since`` and ``until`` (either open), as one unbroken run of the
     chain. With ``agent``, the run spans that agent's first to last receipt in the window (other agents' receipts in
     between stay in, so nothing is cut out of the chain). With ``log`` (a ``verfy.tlog.Log``), each receipt's
-    inclusion proof is added; a receipt Verfy does not hold yet is listed under ``not_in_log``."""
+    inclusion proof is added; a receipt Verfy does not hold yet is listed under ``not_in_log``. With ``attest`` (a
+    function taking the receipt hashes in order, such as ``verfy.team.attest_incident`` bound to a home), Verfy
+    Cloud's signed statement about them is added as ``attestation``."""
     since_s, until_s = _time(since, "since"), _time(until, "until")
     lo = _dt.datetime.fromisoformat(since_s.replace("Z", "+00:00")) if since_s else None
     hi = _dt.datetime.fromisoformat(until_s.replace("Z", "+00:00")) if until_s else None
@@ -95,16 +97,39 @@ def build_pack(ledger_path: str | Path, public: bytes, *, since: str | None = No
             except Exception as e:  # noqa: BLE001 - one receipt not yet uploaded must not lose the others' proofs
                 missing.append({"hash": h, "reason": str(e)[:300]})
         pack["log"] = {"url": log.url, "proofs": proofs, "not_in_log": missing}
+    if attest is not None:
+        res = attest([receipt_hash(r) for r in run])
+        pack["attestation"] = res.get("attestation") if isinstance(res, dict) and "attestation" in res else res
     return pack
+
+
+def check_attestation(statement: Any, run: list[dict], keys: dict[str, bytes]) -> dict:
+    """Check Verfy Cloud's attestation of a pack: its signature, and that it covers exactly these receipts in this
+    order (the Merkle root of their hashes). Returns its ``receipts`` facts: count, known, in_log, first and last
+    received_at. Raises IncidentError."""
+    from . import merkle, witness
+    if not isinstance(statement, dict) or statement.get("type") != "incident":
+        raise IncidentError("the attestation is not a Verfy incident statement")
+    key = keys.get(statement.get("kid"))  # type: ignore[arg-type]
+    if key is None or not witness.verify_statement(statement, key):
+        raise IncidentError("the attestation is not signed by one of Verfy's witness keys")
+    facts = (statement.get("subject") or {}).get("receipts") if isinstance(statement.get("subject"), dict) else None
+    if not isinstance(facts, dict):
+        raise IncidentError("the attestation names no receipts")
+    root = merkle.tree_root([merkle.receipt_hash_bytes(receipt_hash(r)) for r in run]).hex()
+    if facts.get("count") != len(run) or facts.get("merkle_root") != root:
+        raise IncidentError("the attestation is for a different list of receipts")
+    return facts
 
 
 def verify_pack(pack: Any, keys: dict[str, bytes] | None = None) -> dict:
     """Check a pack offline. ``keys`` are the witness keys for its log proofs (without them those are not checked).
-    Returns ``{"ok", "errors", "receipts", "first_seq", "last_seq", "in_log", "log_checked", "earliest_head"}``."""
+    Returns ``{"ok", "errors", "receipts", "first_seq", "last_seq", "in_log", "log_checked", "earliest_head",
+    "attested"}``; ``attested`` is Verfy Cloud's checked facts about the receipts, or None."""
     from . import tlog
     errors: list[str] = []
     out: dict[str, Any] = {"ok": False, "errors": errors, "receipts": 0, "first_seq": None, "last_seq": None,
-                           "in_log": 0, "log_checked": False, "earliest_head": None}
+                           "in_log": 0, "log_checked": False, "earliest_head": None, "attested": None}
     if not isinstance(pack, dict) or pack.get("v") != VERSION:
         errors.append("not a verfy.incident/1 pack")
         return out
@@ -143,5 +168,10 @@ def verify_pack(pack: Any, keys: dict[str, bytes] | None = None) -> dict:
                 heads.append(res["head"]["issued_at"])
         out["log_checked"] = True
         out["earliest_head"] = min(heads) if heads else None
+    if "attestation" in pack and keys:
+        try:
+            out["attested"] = check_attestation(pack["attestation"], run, keys)
+        except IncidentError as e:
+            errors.append(str(e))
     out["ok"] = not errors
     return out

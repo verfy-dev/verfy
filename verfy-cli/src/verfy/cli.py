@@ -107,7 +107,9 @@ def _guard_home(pol: dict) -> dict:
         pat = home.as_posix() + "/**"
         files = pol["files"]  # may be the defaults themselves, so it gets a new object
         pol["files"] = {**files, "sensitive": [*files["sensitive"], pat], "deny_write": [*files["deny_write"], pat]}
-    return pol
+    # and the rules Verfy published since this release (`verfy rules update`), which only make it stricter
+    from . import rulefeed
+    return rulefeed.merge(pol, home)
 
 
 def resolve_policy(cwd: Path | None = None, workspace: str | None = None, notice: bool = False) -> dict:
@@ -847,17 +849,31 @@ def _read_json_arg(path: str, what: str):
 
 
 def cmd_deal_verify(args) -> int:
-    from .deals import verify_deal
-    res = verify_deal(_read_json_arg(args.file, "deal verify"))
+    from .deals import DealError, verify_deal, witness_deal
+    doc = _read_json_arg(args.file, "deal verify")
+    if args.online:
+        vk = os.environ.get("VERFY_VERIFIER_KEY", "")
+        try:
+            online = witness_deal(doc, verifier_key=vk, url=args.url)
+        except DealError as e:
+            raise SystemExit(f"verfy deal verify --online: {e}") from None
+    res = verify_deal(doc)
     if args.json:
-        print(json.dumps(res, indent=2))
+        print(json.dumps({**res, "online": online} if args.online else res, indent=2))
     elif res["ok"]:
         print(f"{c('VERIFIED', '32;1')}  deal {res['deal']}: offered by {res['offer_kid']}, accepted by {res['accept_kid']}, both signed the same terms.")
     else:
         print(f"{c('FAILED', '31;1')}  deal {res['deal']}:")
         for e in res["errors"]:
             print(f"  {e}")
-    return 0 if res["ok"] else 1
+    if args.online and not args.json:
+        for side in ("offer", "accept"):
+            s = online.get(side) or {}
+            when = s.get("received_at") or "not yet"
+            print(f"  {side:6}  reached Verfy {when}" + (f", leaf {s['log_index']} of its public log" if s.get("log_index") is not None else ""))
+        if online.get("witness"):
+            print(f"  Verfy signed a statement about this deal ({online['witness'].get('kid')}).")
+    return 0 if res["ok"] and (not args.online or online.get("ok")) else 1
 
 
 def _log_client(args):
@@ -938,11 +954,13 @@ def cmd_incident_export(args) -> int:
     if not home_file("key.json").exists():
         raise SystemExit("verfy incident: this machine has no key yet, so it has no receipts")
     key = Key.load(home_file("key.json"))
+    from . import team as teamlib
+    attest = (lambda hashes: teamlib.attest_incident(verfy_home(), hashes)) if args.attest else None
     try:
         log = tlog.Log(args.url, home=verfy_home()) if args.prove else None
         pack = incident.build_pack(home_file("ledger.jsonl"), key.public, since=args.since, until=args.until, agent=args.agent,
-                                   note=args.note, log=log)
-    except (incident.IncidentError, tlog.LogError) as e:
+                                   note=args.note, log=log, attest=attest)
+    except (incident.IncidentError, tlog.LogError, teamlib.TeamError) as e:
         raise SystemExit(f"verfy incident: {e}") from None
     text = json.dumps(pack, indent=2, ensure_ascii=False) + "\n"
     if args.output == "-":
@@ -954,6 +972,9 @@ def cmd_incident_export(args) -> int:
     print(f"Wrote {args.output}: {n} receipt(s), seq {pack['receipts'][0]['seq']} to {pack['receipts'][-1]['seq']}{proved}")
     if "log" in pack and pack["log"]["not_in_log"]:
         print(f"  {len(pack['log']['not_in_log'])} receipt(s) are not in Verfy's log yet (run verfy sync, then export again)")
+    if "attestation" in pack:
+        facts = ((pack["attestation"].get("subject") or {}).get("receipts") or {})
+        print(f"  Verfy attests it holds {facts.get('known')} of the {facts.get('count')} receipt(s) for your organization")
     return 0
 
 
@@ -964,7 +985,7 @@ def cmd_incident_verify(args) -> int:
     if args.key:
         pub = public_from(args.key)
         keys = {witness.witness_kid(pub): pub}
-    elif isinstance(pack, dict) and isinstance(pack.get("log"), dict) and not args.offline:
+    elif isinstance(pack, dict) and (isinstance(pack.get("log"), dict) or "attestation" in pack) and not args.offline:
         try:
             keys = tlog.Log(str(pack["log"].get("url") or tlog.DEFAULT_LOG_URL), home=verfy_home()).keys
         except Exception as e:  # noqa: BLE001
@@ -979,11 +1000,77 @@ def cmd_incident_verify(args) -> int:
               "every signature checks and none is missing.")
         if res["log_checked"]:
             print(f"  {res['in_log']} of them are in Verfy's signed log (earliest head {res['earliest_head']}).")
+        if res["attested"]:
+            a = res["attested"]
+            print(f"  Verfy attests it holds {a.get('known')} of them, received from {a.get('first_received_at')} to {a.get('last_received_at')}.")
     else:
         print(f"{c('FAILED', '31;1')}  {len(res['errors'])} problem(s):")
         for e in res["errors"]:
             print(f"  {e}")
     return 0 if res["ok"] else 1
+
+def cmd_adaptive(args) -> int:
+    from . import adaptive
+    policy = _hook_policy(os.getcwd())
+    home = verfy_home()
+    if args.adaptive_cmd == "forget":
+        n = adaptive.forget(home, args.what)
+        print(f"forgot {n} entr{'y' if n == 1 else 'ies'}")
+        return 0
+    st = adaptive.status(home, policy)
+    if args.json:
+        print(json.dumps(st, indent=2))
+        return 0
+    print(f"Escalation  {st['escalate']}   (a session that tried something blocked needs approval for risky actions)")
+    novelty = st["novelty"] if st["novelty"] == "off" else ("asks the first time" if st["warm"] else f"learning ({st['learned']} of {st['warmup']} actions)")
+    print(f"Novelty     {novelty}")
+    print(f"Learned     {len(st['programs'])} program(s) and {len(st['hosts'])} host(s) from {st['learned']} action(s)")
+    if st["programs"]:
+        print("  programs  " + ", ".join(st["programs"][:20]) + (" …" if len(st["programs"]) > 20 else ""))
+    if st["hosts"]:
+        print("  hosts     " + ", ".join(st["hosts"][:20]) + (" …" if len(st["hosts"]) > 20 else ""))
+    if st["escalated"]:
+        print("Sessions under escalation (last hour):")
+        for sid, score in st["escalated"].items():
+            print(f"  {sid}  {score} point(s)  -> {'blocks' if score >= adaptive.DENY_AT else 'asks'} before anything risky")
+    return 0
+
+def cmd_rules(args) -> int:
+    from . import rulefeed
+    home = verfy_home()
+    if args.rules_cmd == "auto":
+        rulefeed.set_auto(home, args.state == "on")
+        print(f"Daily rule-feed refresh is {args.state} on this machine.")
+        return 0
+    if args.rules_cmd == "update":
+        try:
+            res = rulefeed.update(home, args.url, trust_key=args.trust_key)
+        except rulefeed.FeedError as e:
+            if args.json:
+                print(json.dumps({"ok": False, "error": str(e)}, indent=2))
+            elif not args.quiet:
+                print(f"{c('FAILED', '31;1')}  {e}")
+            return 1
+        if args.json:
+            print(json.dumps({"ok": True, **res}, indent=2))
+        elif not args.quiet:
+            what = "updated to" if res["changed"] else "already at"
+            print(f"{c('OK', '32;1')}  Verfy's rule feed {what} version {res['version']}: {res['rules']} rule(s), {res['hosts']} blocked host(s), signed by {res['kid']}.")
+        return 0
+    data = rulefeed.load(home)
+    on = rulefeed.auto(home)
+    if args.json:
+        print(json.dumps({"feed": data, "auto": on}, indent=2))
+        return 0
+    if not data:
+        print("No rule feed on this machine yet. Run `verfy rules update` (it adds the rules Verfy published since this release).")
+    else:
+        feed = data["feed"]
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(data.get("fetched_at", 0)))
+        print(f"Rule feed   version {feed['version']} from {data.get('url')}, fetched {when}")
+        print(f"            {len(feed['shell'])} rule(s), {len(feed['network_deny'])} blocked host(s); signed by {', '.join(data.get('keys') or [])}")
+    print(f"Daily refresh {'on' if on else 'off' if on is False else 'on for machines enrolled with automatic upload'}")
+    return 0
 
 def cmd_deal_hash(args) -> int:
     from .canonical import digest
@@ -1612,6 +1699,8 @@ def _hook_record(*, action: dict, decision: dict, session: str, policy: dict, ou
                          include_args=bool((policy.get("receipts") or {}).get("include_args", False)),
                          sandbox=sandboxes.running_in() or ("claude-code" if not agent and sandboxes.effective(Path.cwd(), Path.home())["enabled"] is True else None))
     teamlib.sync_soon(verfy_home())
+    from . import rulefeed
+    rulefeed.refresh_soon(verfy_home())
     return receipt
 
 
@@ -2162,6 +2251,19 @@ def cmd_doctor(args) -> int:
     if team:
         auto = "uploads on their own" if team.get("auto_sync") is True else "uploads only with `verfy sync`"
         print(f"Verfy Cloud   enrolled with {team['url']} as {team['device_id']}; {auto}")
+    if getattr(args, "live", False):
+        # run each installed hook the way its agent does: a harmless call must pass, a destructive one must be stopped
+        from . import selftest
+        on = sorted({agent for _label, path, agent, _w in places if _hook_state(path, agent) == "on"})
+        if not on:
+            print("Live check    no agent has Verfy's hook yet")
+        for agent in on:
+            res = selftest.check_agent(agent, hooks.COMMANDS[agent])
+            label = hooks.INSTALL[agent][0]
+            if res["ok"]:
+                print(f"{label:<13} live check passed: `ls` allowed, `rm -rf ~` stopped, answered in {res['seconds']:g} s")
+            for prob in res["problems"]:
+                problems.append(f"{label}: {prob}")
     tip = (f"{c('TIP', '33;1')}      {', '.join(dict.fromkeys(unguarded))} {'is' if len(set(unguarded)) == 1 else 'are'} installed without "
            "Verfy's hook. `verfy setup` shows what it would add; `verfy setup --write` adds it.") if unguarded else None
     if problems:
@@ -2539,6 +2641,29 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--json", action="store_true")
     x.set_defaults(fn=cmd_witness_verify)
 
+    p = sub.add_parser("rules", help="Verfy's signed rule feed: new rules between releases")
+    rl = p.add_subparsers(dest="rules_cmd", metavar="action")
+    x = rl.add_parser("update", help="fetch the feed, check Verfy's signature and use its rules")
+    x.add_argument("--url", default="https://verfy.dev", help="Verfy Cloud (default: %(default)s)")
+    x.add_argument("--trust-key", metavar="KID", help="accept a feed signed by this new witness key")
+    x.add_argument("--quiet", action="store_true")
+    x.add_argument("--json", action="store_true")
+    x = rl.add_parser("status", help="the feed kept on this machine (the default)")
+    x.add_argument("--json", action="store_true")
+    x = rl.add_parser("auto", help="turn the daily background refresh on or off")
+    x.add_argument("state", choices=["on", "off"])
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_rules, rules_cmd="status")
+
+    p = sub.add_parser("adaptive", help="what the guard learned on this machine, and sessions it is stricter with")
+    ad = p.add_subparsers(dest="adaptive_cmd", metavar="action")
+    x = ad.add_parser("status", help="settings, what was learned, and sessions under escalation (the default)")
+    x.add_argument("--json", action="store_true")
+    x = ad.add_parser("forget", help="forget a program (prog:NAME), a host (host:NAME), a session (session:ID) or all")
+    x.add_argument("what")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_adaptive, adaptive_cmd="status")
+
     p = sub.add_parser("log", help="Verfy's public transparency log: prove a receipt is in it, check it only grows")
     lg = p.add_subparsers(dest="log_cmd", metavar="action")
     x = lg.add_parser("prove", help="fetch and check the proof that Verfy's signed log holds a receipt")
@@ -2561,6 +2686,7 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--agent", help="span this agent's first to last receipt in the window")
     x.add_argument("--note", help="a line saying what the pack is about")
     x.add_argument("--prove", action="store_true", help="add Verfy's transparency-log proof for each receipt")
+    x.add_argument("--attest", action="store_true", help="add Verfy Cloud's signed statement of which receipts it holds (enrolled machines)")
     x.add_argument("--url", default="https://verfy.dev/api/v1/log", help="the log for --prove (default: %(default)s)")
     x.add_argument("-o", "--output", default="incident.json", help="where to write it (- for standard output; default: %(default)s)")
     x.set_defaults(fn=cmd_incident_export)
@@ -2576,6 +2702,8 @@ def build_parser() -> argparse.ArgumentParser:
     x = dl.add_parser("verify", help="check both signatures, the terms and the link between the two receipts")
     x.add_argument("file", help="the deal JSON (or - for standard input)")
     x.add_argument("--json", action="store_true")
+    x.add_argument("--online", action="store_true", help="also ask Verfy Cloud when each side reached it (verifier key in VERFY_VERIFIER_KEY)")
+    x.add_argument("--url", default="https://verfy.dev", help="Verfy Cloud for --online (default: %(default)s)")
     x.set_defaults(fn=cmd_deal_verify)
     x = dl.add_parser("hash", help="the mandate_sha256 a payment receipt names for this JSON document")
     x.add_argument("file")
@@ -2653,6 +2781,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("doctor", help="check this machine's setup: hooks, key, receipts, verfy.lock (changes nothing)")
     p.add_argument("--ledger")
     p.add_argument("--lock", help="lock file to look at (default ./verfy.lock)")
+    p.add_argument("--live", action="store_true", help="also run each installed hook as its agent does, with a harmless and a destructive call")
     p.set_defaults(fn=cmd_doctor)
 
     p = sub.add_parser("posture", help="risky settings in each agent's own config (bypass modes, hooks switched off, no sandbox); --fix shows the edits that take them away")
@@ -2774,7 +2903,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     args.cmd = cmd_after
     if not hasattr(args, "fn"):
-        if getattr(args, "command_name", None) in ("ledger", "lock", "team", "scitt", "witness", "deal", "log", "incident"):
+        if getattr(args, "command_name", None) in ("ledger", "lock", "team", "scitt", "witness", "deal", "log", "incident", "adaptive", "rules"):
             ap.parse_args([args.command_name, "--help"])
         ap.print_help()
         return 0

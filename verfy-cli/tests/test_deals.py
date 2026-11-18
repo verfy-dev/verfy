@@ -101,6 +101,55 @@ class Deals(unittest.TestCase):
         self.assertFalse(deals.is_reference({}))
 
 
+class DealWitness(unittest.TestCase):
+    """verfy.deals.witness_deal against Verfy Cloud's POST /api/v1/verify/deals (faked here; verfy-cloud tests the
+    route with the deal in tests/fixtures/deal.json)."""
+
+    def setUp(self):
+        self.deal = json.loads((Path(__file__).parent / "fixtures" / "deal.json").read_text("utf-8"))["deal"]
+        self.seed = b"\x05" * 32
+        from verfy import ed25519, witness
+        from verfy.canonical import canonical_bytes
+        from verfy.receipts import b64u
+        pub = ed25519.public_key(self.seed)
+        self.kid = witness.witness_kid(pub)
+
+        def sign(body):
+            body = {**body, "v": witness.VERSION, "kid": self.kid}
+            return {**body, "sig": b64u(ed25519.sign(self.seed, canonical_bytes(body)))}
+
+        self.sign, self.keys_doc = sign, {"keys": [{"kid": self.kid, "alg": "Ed25519", "public": b64u(pub)}]}
+        self.calls = []
+
+    def cloud(self, answer):
+        def transport(method, url, body, headers):
+            self.calls.append((method, url, headers.get("Authorization")))
+            if url.endswith("/.well-known/verfy-witness.json"):
+                return 200, self.keys_doc
+            return 200, answer
+        return transport
+
+    def test_a_signed_answer(self):
+        answer = {"ok": True, "errors": [], "deal": self.deal["deal"], "offer": {"received_at": "2026-11-16T10:00:00.000Z", "log_index": 4},
+                  "accept": {"received_at": None, "log_index": None}}
+        answer["witness"] = self.sign({"type": "deal", "subject": {"deal": self.deal["deal"]}})
+        res = deals.witness_deal(self.deal, verifier_key="vk_" + "a" * 43, url="https://verfy.example", transport=self.cloud(answer))
+        self.assertEqual(res["offer"]["log_index"], 4)
+        self.assertEqual(self.calls[0], ("POST", "https://verfy.example/api/v1/verify/deals", "Bearer vk_" + "a" * 43))
+
+    def test_a_forged_or_misdirected_answer_fails(self):
+        forged = {"ok": True, "deal": self.deal["deal"], "witness": {**self.sign({"type": "deal", "subject": {"deal": self.deal["deal"]}}), "issued_at": "x"}}
+        other = {"ok": True, "deal": self.deal["deal"], "witness": self.sign({"type": "deal", "subject": {"deal": "deal_" + "0" * 24}})}
+        for answer in (forged, other):
+            with self.assertRaises(deals.DealError):
+                deals.witness_deal(self.deal, verifier_key="vk_" + "a" * 43, url="https://verfy.example", transport=self.cloud(answer))
+        with self.assertRaises(deals.DealError):
+            deals.witness_deal(self.deal, verifier_key="sk_wrong", url="https://verfy.example", transport=self.cloud({}))
+
+    def test_the_shared_fixture_checks(self):
+        self.assertTrue(deals.verify_deal(self.deal)["ok"])
+
+
 class Payments(unittest.TestCase):
     def test_a_payment_names_its_mandate_and_hides_the_details(self):
         r = Recorder(agent="pay-bot", home=tmpdir(self), upload="off")
