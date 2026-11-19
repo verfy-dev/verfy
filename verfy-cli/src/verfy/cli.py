@@ -2399,11 +2399,16 @@ def cmd_team_registry(args) -> int:
 
 def cmd_demo(args) -> int:
     tmp = Path(tempfile.mkdtemp(prefix="verfy-demo-"))
-    env = {**os.environ, "VERFY_HOME": str(tmp)}
+    # Verfy's own folder protects itself, so the demo project sits next to it, not inside it
+    home, project = tmp / "verfy", tmp / "project"
+    home.mkdir()
+    project.mkdir()
+    env = {**os.environ, "VERFY_HOME": str(home)}
     py = sys.executable
     gateway = [py, "-m", "verfy", "proxy", "--name", "demo", "--", py, "-m", "verfy.demo_server", "--poisoned"]
-    pol = {"agent": "demo-agent", "workspace": str(tmp / "project"), "on_ask": "deny"}
-    (tmp / "policy.json").write_text(json.dumps(pol), "utf-8")
+    # escalation would block everything after the first attacks; off here, so each call shows its own rule
+    pol = {"agent": "demo-agent", "workspace": str(project), "on_ask": "deny", "adaptive": {"escalate": "off", "novelty": "off"}}
+    (home / "policy.json").write_text(json.dumps(pol), "utf-8")
     calls = [
         ("run_command", {"command": "pytest -q"}),
         ("run_command", {"command": "rm -rf ~"}),
@@ -2457,11 +2462,13 @@ def cmd_demo(args) -> int:
         if blocked:
             for ln in text.splitlines()[1:-1]:
                 print(c("         " + ln, "2"))
-    key = Key.load(tmp / "key.json")
-    res = verify_ledger(read_ledger(tmp / "ledger.jsonl"), key.public)
+    key = Key.load(home / "key.json")
+    res = verify_ledger(read_ledger(home / "ledger.jsonl"), key.public)
     print()
+    print(c("In a real session these attempts would also count against it: after one blocked call, anything risky needs a person;\n"
+            "after three, it is blocked (escalation, see `verfy adaptive`). The demo turns that off to show each rule on its own.\n", "2"))
     print(f"Ledger: {res['count']} signed receipts, " + (c("chain verified", "32;1") if res["ok"] else c("verification FAILED", "31;1")))
-    print(f"Try:    $env:VERFY_HOME = \"{tmp}\"; verfy ledger show" if os.name == "nt" else f"Try:    VERFY_HOME={tmp} verfy ledger show")
+    print(f"Try:    $env:VERFY_HOME = \"{home}\"; verfy ledger show" if os.name == "nt" else f"Try:    VERFY_HOME={home} verfy ledger show")
     return 0 if res["ok"] else 1
 
 
