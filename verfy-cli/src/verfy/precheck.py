@@ -31,7 +31,7 @@ SHELL_WORDS = {"if", "then", "elif", "else", "fi", "for", "while", "until", "do"
 FIND_FILTERS = ("-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-newer", "-mtime", "-mmin", "-size")
 BAD_SCHEMES = ("gopher", "dict", "ldap", "ldaps", "tftp", "netdoc", "jar")
 PRIVATE_HOST = r"^(?:10\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|169\.254\.|f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:)"
-NETWORK_CMDS = {"curl", "wget", "nc", "ncat", "netcat", "scp", "rsync", "ftp", "sftp", "http", "https", "httpie", "telnet", "socat", "aria2c", "Invoke-WebRequest", "iwr", "irm"}
+NETWORK_CMDS = {"curl", "wget", "nc", "ncat", "netcat", "scp", "rsync", "ftp", "sftp", "http", "https", "httpie", "telnet", "socat", "aria2c", "Invoke-WebRequest", "iwr", "irm", "nslookup", "dig", "host", "drill", "Resolve-DnsName"}
 READERS = {"cat", "less", "more", "head", "tail", "base64", "xxd", "od", "strings", "grep", "egrep", "rg", "awk", "sed", "cut", "sort", "uniq", "tac", "nl", "bat", "jq", "gpg", "openssl", "cp", "scp", "rsync", "tar", "zip", "7z", "source", "."}
 SYSTEM_DIRS = {"/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64", "/opt", "/proc", "/root", "/sbin", "/srv", "/sys", "/usr", "/var", "/System", "/Library", "/Applications", "/Users", "/private"}
 WINDOWS_DIRS = {"/c/windows", "/c/program files", "/c/program files (x86)", "/c/programdata", "/c/users"}
@@ -1123,6 +1123,8 @@ def check(action: dict, policy: dict | None = None, context: dict | None = None)
 
     for r in pol.get("rules", []):
         if not name_match(r.get("tool", "*"), full) and not name_match(r.get("tool", "*"), tool):
+            continue
+        if r.get("kind") and r["kind"] != kind:  # e.g. "shell": a command, not a file that mentions one
             continue
         pat = rx(r["pattern"], r.get("flags", ""))
         for path_, text in flatten_strings(args):

@@ -51,10 +51,12 @@ import re
 import secrets
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
+from . import limits as limitslib
 from . import team as teamlib
 from .fileio import FileLock
 from .receipts import Key, Ledger, read_ledger, receipt_hash, verify_ledger
@@ -66,7 +68,10 @@ RECORD_POLICY = "none"
 #: kinds Verfy suggests; any lowercase word up to 40 characters is accepted
 KINDS = ("payment", "message", "write", "delete", "read", "exec", "network", "deploy", "access", "data", "other")
 STATUSES = ("ok", "error")
+# a guarded action that never ran: stopped by a rule, or not approved
+_STOPPED = ("blocked", "declined")
 UPLOAD_MODES = ("auto", "now", "off")
+POLL_SECONDS = 2.0
 
 TEXT_MAX = 200  # agent, session, system and action, in UTF-16 code units, the way Verfy Cloud counts them
 APPROVER_MAX = 100
@@ -194,6 +199,17 @@ def _check_tree(where: str, value: Any, stored: bool) -> int:
 
 # ---------------------------------------------------------------- the recorder
 
+class ActionDenied(Exception):
+    """A guarded action was stopped before it ran: a rule denied it, or nobody approved it. ``receipt`` is the signed
+    record of that, ``verdict`` "deny" or "ask", ``findings`` the rules and why."""
+
+    def __init__(self, message: str, *, verdict: str, findings: list[dict], receipt: dict | None):
+        super().__init__(message)
+        self.verdict = verdict
+        self.findings = findings
+        self.receipt = receipt
+
+
 class Action:
     """What ``Recorder.action()`` yields. Set ``result`` before the block ends to record its hash."""
 
@@ -217,10 +233,17 @@ class Recorder:
                       "off": never; call ``sync()`` yourself.
     ``on_error``      what ``track`` and ``action`` do when the record itself fails after the action ran:
                       "log" (default) logs it and lets the program carry on, "raise" raises it.
+    ``rules``         rules checked before a guarded action runs (see ``verfy.limits``): limits, "ask", "deny". The
+                      "actions" rules in ~/.verfy/policy.json and the team policy are added (``policy_rules=False``
+                      leaves them out). With any rule, ``track`` and ``action`` guard by default.
+    ``on_ask``        what happens to an action a rule says to ask about: "deny" (default: nobody is there to ask),
+                      "team" (wait for an owner or admin in Verfy Cloud, at most ``approval_timeout`` seconds), or a
+                      function ``(request) -> bool | str`` that asks someone and returns who approved, or False.
     """
 
     def __init__(self, agent: str | None = None, *, home: str | os.PathLike | None = None, session: str | None = None,
-                 include_args: bool = False, upload: str = "auto", on_error: str = "log"):
+                 include_args: bool = False, upload: str = "auto", on_error: str = "log", rules: list | None = None,
+                 policy_rules: bool = True, on_ask: str | Callable[[dict], Any] = "deny", approval_timeout: int = 120):
         self.agent = _text("agent", agent if agent is not None else os.environ.get("VERFY_AGENT") or "agent", required=True)
         self.session = _text("session", session if session is not None else "sess_" + secrets.token_hex(8), required=True)
         if upload not in UPLOAD_MODES:
@@ -236,44 +259,167 @@ class Recorder:
         self._ledger = Ledger(self.ledger_path, self.key)
         self._sync_lock = threading.Lock()
         self.last: dict | None = None
+        if not (callable(on_ask) or on_ask in ("deny", "team")):
+            raise RecordError("on_ask must be 'deny', 'team' or a function")
+        if isinstance(approval_timeout, bool) or not isinstance(approval_timeout, int) or not 10 <= approval_timeout <= 900:
+            raise RecordError("approval_timeout must be a whole number of seconds from 10 to 900")
+        try:
+            self.rules = limitslib.load_rules(rules) + (limitslib.rules_from_policies(self.home) if policy_rules else [])
+        except limitslib.RuleError as e:
+            raise RecordError(str(e)) from None
+        self.rules_sha = limitslib.rules_digest(self.rules)
+        self.on_ask = on_ask
+        self.approval_timeout = approval_timeout
+        self._totals = limitslib.Totals(self.home / "limits.json")
+        self._team_transport: teamlib.Transport | None = None
+
+    # -------------------------------------------------- rules
+
+    def check(self, action: str, *, system: str = "", kind: str = "other", args: Any = None) -> dict:
+        """What the rules say about an action, without running, recording or counting anything:
+        ``{"verdict": "allow" | "ask" | "deny", "findings": [{"rule", "verdict", "message"}]}``."""
+        res = limitslib.evaluate(self.rules, action=action, system=system, kind=kind, args=jsonable(args if args is not None else {}, strict=False),
+                                 spent=self._totals.current(), agent=self.agent)
+        return {"verdict": res["verdict"], "findings": res["findings"]}
+
+    def guard(self, action: str, *, system: str = "", kind: str = "other", args: Any = None, session: str | None = None) -> dict:
+        """Check an action before running it. Returns ``{"verdict", "findings", "approved_by"}`` when it may run (it
+        is then counted towards daily limits); raises ``ActionDenied``, after recording the refusal, when it may not.
+        Record what happened afterwards with ``record(..., decision=...)``, or use ``track`` / ``action``, which do
+        both."""
+        return self._guard(action, system=system, kind=kind, args=jsonable(args if args is not None else {}), session=session)
+
+    def _guard(self, action: str, *, system: str, kind: str, args: Any, session: str | None) -> dict:
+        _text("action", action, required=True)
+        if not isinstance(kind, str) or not _KIND.match(kind):
+            raise RecordError("kind must be one lowercase word (letters, digits, - or _) of at most 40 characters")
+
+        def first(totals: dict[str, float]):
+            res = limitslib.evaluate(self.rules, action=action, system=system, kind=kind, args=args, spent=totals, agent=self.agent)
+            return res, (res["amounts"] if res["verdict"] == "allow" else None)
+
+        res = self._totals.decide(first)
+        if res["verdict"] == "allow":
+            return {"verdict": "allow", "findings": res["findings"], "approved_by": None}
+        if res["verdict"] == "deny":
+            self._refuse(action, system=system, kind=kind, args=args, session=session, verdict="deny", findings=res["findings"],
+                         status="blocked", why="; ".join(f["message"] for f in res["findings"] if f["verdict"] == "deny"))
+        approver, why = self._ask(action, system=system, kind=kind, args=args, findings=res["findings"])
+        if not approver:
+            self._refuse(action, system=system, kind=kind, args=args, session=session, verdict="ask", findings=res["findings"],
+                         status="declined", why=why)
+
+        def again(totals: dict[str, float]):
+            # an approval covers the "ask" rules it was asked about, not a deny that became true while waiting
+            now = limitslib.evaluate(self.rules, action=action, system=system, kind=kind, args=args, spent=totals, agent=self.agent)
+            return now, (now["amounts"] if now["verdict"] != "deny" else None)
+
+        now = self._totals.decide(again)
+        if now["verdict"] == "deny":
+            self._refuse(action, system=system, kind=kind, args=args, session=session, verdict="deny", findings=now["findings"],
+                         status="blocked", why="; ".join(f["message"] for f in now["findings"] if f["verdict"] == "deny"))
+        return {"verdict": "ask", "findings": now["findings"], "approved_by": str(approver)[:APPROVER_MAX]}
+
+    def _ask(self, action: str, *, system: str, kind: str, args: Any, findings: list[dict]) -> tuple[str | None, str]:
+        """Who approved the action, or None and why not."""
+        asked = [f for f in findings if f["verdict"] == "ask"]
+        if callable(self.on_ask):
+            try:
+                answer = self.on_ask({"agent": self.agent, "action": action, "system": system, "kind": kind, "args": args, "findings": asked})
+            except Exception as e:  # noqa: BLE001 (a failing approver approves nothing)
+                return None, f"the approval function failed: {type(e).__name__}"
+            if answer is True:
+                return "callback", ""
+            if isinstance(answer, str) and answer.strip():
+                return answer.strip(), ""
+            return None, "not approved"
+        if self.on_ask != "team":
+            return None, "a rule says to ask, and on_ask is deny: " + "; ".join(f["message"] for f in asked)
+        try:
+            req = teamlib.request_approval(self.home, system or "app", action, kind, self._ledger.hash(args), findings,
+                                           self.approval_timeout, transport=self._team_transport)
+            state = req
+            deadline = time.monotonic() + self.approval_timeout + 5
+            while state.get("status") == "pending" and time.monotonic() < deadline:
+                time.sleep(POLL_SECONDS)
+                state = teamlib.approval_status(self.home, req["id"], transport=self._team_transport)
+        except (teamlib.TeamError, OSError, ValueError, KeyError) as e:
+            return None, f"Verfy could not reach your team to approve it ({e})"
+        if state.get("status") == "approved":
+            return "team:" + str(state.get("decided_by") or "admin")[:90], ""
+        return None, {"rejected": "your team rejected it", "expired": "nobody on your team approved it in time"}.get(
+            str(state.get("status")), "your team did not approve it") + (f" ({state['note']})" if state.get("note") else "")
+
+    def _refuse(self, action: str, *, system: str, kind: str, args: Any, session: str | None, verdict: str,
+                findings: list[dict], status: str, why: str) -> None:
+        receipt = None
+        try:
+            receipt = self._write(action, system=system, kind=kind, args=args, result=None, status=status, session=session,
+                                  approved_by=None, include_args=False, verdict=verdict, rules=[f["rule"] for f in findings],
+                                  policy_sha=self.rules_sha)
+            self._after_write()
+        except Exception as e:  # noqa: BLE001 (the action is refused either way)
+            log.error("verfy: could not record that %s was refused: %s", action, e)
+        raise ActionDenied(f"verfy stopped {action}: {why}", verdict=verdict, findings=findings, receipt=receipt)
 
     # -------------------------------------------------- writing
 
     def record(self, action: str, *, system: str = "", kind: str = "other", args: Any = None, result: Any = None,
                status: str = "ok", session: str | None = None, approved_by: str | None = None,
-               include_args: bool | None = None) -> dict:
-        """Sign and append one receipt, and return it. Nothing is written when anything in it is refused."""
+               include_args: bool | None = None, decision: dict | None = None) -> dict:
+        """Sign and append one receipt, and return it. Nothing is written when anything in it is refused.
+        ``decision`` is what ``guard`` returned for this action, so the receipt names the rules that let it through."""
+        if status not in STATUSES:
+            raise RecordError(f"status must be one of {', '.join(STATUSES)}")
+        verdict, rules, policy_sha = self._decision_fields(decision)
+        if decision and decision.get("approved_by") and approved_by is None:
+            approved_by = decision["approved_by"]
         receipt = self._write(action, system=system, kind=kind, args=jsonable(args if args is not None else {}),
                               result=None if result is None else jsonable(result), status=status, session=session,
-                              approved_by=approved_by, include_args=self.include_args if include_args is None else bool(include_args))
+                              approved_by=approved_by, include_args=self.include_args if include_args is None else bool(include_args),
+                              verdict=verdict, rules=rules, policy_sha=policy_sha)
         self._after_write()
         return receipt
 
+    def _decision_fields(self, decision: dict | None) -> tuple[str, list[str], str]:
+        if not decision:
+            return "allow", [], RECORD_POLICY
+        if not isinstance(decision, dict) or decision.get("verdict") not in ("allow", "ask"):
+            raise RecordError("decision must be what guard() returned for this action")
+        return decision["verdict"], [f["rule"] for f in decision.get("findings", []) if isinstance(f, dict) and isinstance(f.get("rule"), str)], self.rules_sha
+
     def track(self, action: str, *, system: str = "", kind: str = "other", args: Callable[..., Any] | None = None,
-              record_result: bool = True, session: str | None = None) -> Callable[[F], F]:
+              record_result: bool = True, session: str | None = None, guard: bool | None = None) -> Callable[[F], F]:
         """A decorator that records every call of a function (plain or async).
 
         The arguments recorded are the call's named arguments (``self`` and ``cls`` left out), or what ``args`` returns
         when given, for example ``args=lambda order, amount, **_: {"order": order, "amount": amount}``. A call that
         raises is recorded with status "error", and the exception is raised again. Values that are not JSON-like are
-        recorded as their type name."""
-        return _tracker(lambda: self, action, system=system, kind=kind, args=args, record_result=record_result, session=session)
+        recorded as their type name. With ``guard`` (the default when the recorder has rules) the rules are checked
+        first, and a call they stop raises ``ActionDenied`` without running."""
+        return _tracker(lambda: self, action, system=system, kind=kind, args=args, record_result=record_result, session=session, guard=guard)
 
-    def action(self, action: str, *, system: str = "", kind: str = "other", args: Any = None, session: str | None = None) -> "_ActionBlock":
-        """A ``with`` block recorded when it ends: status "error" if it raised, else "ok" with the hash of ``.result``."""
-        return _ActionBlock(self, action, system=system, kind=kind, args=args, session=session)
+    def action(self, action: str, *, system: str = "", kind: str = "other", args: Any = None, session: str | None = None,
+               guard: bool | None = None) -> "_ActionBlock":
+        """A ``with`` block recorded when it ends: status "error" if it raised, else "ok" with the hash of ``.result``.
+        With ``guard`` (the default when the recorder has rules) a block the rules stop raises ``ActionDenied`` on
+        entry and never runs."""
+        return _ActionBlock(self, action, system=system, kind=kind, args=args, session=session, guard=guard)
 
     def _write(self, action: str, *, system: str, kind: str, args: Any, result: Any, status: str, session: str | None,
-               approved_by: str | None, include_args: bool) -> dict:
+               approved_by: str | None, include_args: bool, verdict: str = "allow", rules: list[str] | None = None,
+               policy_sha: str = RECORD_POLICY) -> dict:
         action = _text("action", action, required=True)
         system = _text("system", system)
         if not isinstance(kind, str) or not _KIND.match(kind):
             raise RecordError("kind must be one lowercase word (letters, digits, - or _) of at most 40 characters, "
                               f"such as {', '.join(KINDS[:6])}")
-        if status not in STATUSES:
+        if status not in STATUSES + _STOPPED:
             raise RecordError(f"status must be one of {', '.join(STATUSES)}")
+        if verdict not in ("allow", "ask", "deny"):
+            raise RecordError("verdict must be allow, ask or deny")
         session = _text("session", session if session is not None else self.session, required=True)
-        decision: dict[str, Any] = {"verdict": "allow", "kind": kind, "findings": []}
+        decision: dict[str, Any] = {"verdict": verdict, "kind": kind, "findings": [{"rule": r} for r in (rules or [])][:100]}
         if approved_by is not None:
             decision["approved_by"] = _text("approved_by", approved_by, required=True, limit=APPROVER_MAX)
         nodes = _check_tree("args", args, stored=include_args)
@@ -284,7 +430,7 @@ class Recorder:
                               "(only their hash), or pass fewer")
         outcome = {"status": status, "result_sha256": None if result is None else self._ledger.hash(result)}
         fields = dict(agent=self.agent, session=session, action={"server": system, "tool": action, "arguments": args},
-                      decision=decision, outcome=outcome, policy_sha256=RECORD_POLICY, include_args=include_args)
+                      decision=decision, outcome=outcome, policy_sha256=policy_sha, include_args=include_args)
         self._check_size(fields)
         receipt = self._ledger.append(**fields)
         self.last = receipt
@@ -321,6 +467,67 @@ class Recorder:
         if getattr(sys, "frozen", False) and Path(sys.executable).stem.lower() != "verfy":
             return
         teamlib.sync_soon(self.home)
+
+    # -------------------------------------------------- deals and payments
+
+    def offer(self, action: str, *, counterparty: str, terms: Any, system: str = "", kind: str = "other",
+              session: str | None = None, guard: bool | None = None) -> dict:
+        """Sign this side of a two-party deal and return the deal document to send to the other side, who calls
+        ``accept``. The terms stay in the document; the receipt carries only their salted-by-deal-id hash."""
+        from . import deals
+        terms = jsonable(terms)
+        decision = self._guard(action, system=system, kind=kind, args=terms, session=session) if (self.rules if guard is None else guard) else None
+        deal_id = deals.new_deal_id()
+        args = {"deal": deal_id, "terms_sha256": deals.terms_hash(deal_id, terms), "role": "offer",
+                "counterparty": _text("counterparty", counterparty, required=True)}
+        receipt = self._write_reference(action, system=system, kind=kind, args=args, session=session, decision=decision)
+        return {"v": deals.VERSION, "deal": deal_id, "terms": terms, "offer": receipt, "offer_key": self.public_key}
+
+    def accept(self, offer: dict, *, action: str | None = None, system: str | None = None, kind: str | None = None,
+               session: str | None = None, guard: bool | None = None) -> dict:
+        """Check the other side's offer (signature and terms) and sign this side, naming their receipt. Returns the
+        whole deal, which ``verfy.deals.verify_deal`` and ``verfy deal verify`` check. Raises ``DealError`` for an
+        offer that does not check out."""
+        from . import deals
+        a = deals.check_offer(offer)
+        if a.get("kid") == self.kid:
+            raise RecordError("this recorder made the offer; the other side accepts it")
+        act = a.get("action") or {}
+        name = action or act.get("tool") or "deal"
+        sysname = act.get("server", "") if system is None else system
+        k = act.get("kind", "other") if kind is None else kind
+        decision = self._guard(name, system=sysname, kind=k, args=offer["terms"], session=session) if (self.rules if guard is None else guard) else None
+        args = {"deal": offer["deal"], "terms_sha256": act["args"]["terms_sha256"], "role": "accept",
+                "offer_receipt": receipt_hash(a), "offer_kid": a["kid"]}
+        receipt = self._write_reference(name, system=sysname, kind=k, args=args, session=session, decision=decision)
+        return {**offer, "accept": receipt, "accept_key": self.public_key}
+
+    def record_payment(self, amount: Any, currency: str, *, payee: str, mandate: Any = None, mandate_type: str | None = None,
+                       action: str = "payment", system: str = "", status: str = "ok", session: str | None = None,
+                       decision: dict | None = None) -> dict:
+        """Record a payment made: the amount, currency and payee only as a salted hash (``details_sha256``), and the
+        payment mandate it carried out as ``mandate_sha256`` (the canonical SHA-256 of that JSON), so whoever holds
+        the mandate can show this receipt carried it out. Check limits first with ``guard("payment", kind="payment",
+        args={"amount": ...})`` and pass its answer as ``decision``."""
+        from .canonical import digest
+        if status not in STATUSES:
+            raise RecordError(f"status must be one of {', '.join(STATUSES)}")
+        details = jsonable({"amount": amount, "currency": _text("currency", currency, required=True), "payee": _text("payee", payee, required=True)})
+        args: dict[str, str] = {"details_sha256": self._ledger.hash(details)}
+        if mandate is not None:
+            args["mandate_sha256"] = digest(jsonable(mandate))
+        if mandate_type is not None:
+            args["mandate_type"] = _text("mandate_type", mandate_type, required=True, limit=100)
+        return self._write_reference(action, system=system, kind="payment", args=args, session=session, decision=decision, status=status)
+
+    def _write_reference(self, action: str, *, system: str, kind: str, args: dict, session: str | None,
+                         decision: dict | None, status: str = "ok") -> dict:
+        verdict, rules, policy_sha = self._decision_fields(decision)
+        receipt = self._write(action, system=system, kind=kind, args=args, result=None, status=status, session=session,
+                              approved_by=(decision or {}).get("approved_by"), include_args=True, verdict=verdict, rules=rules,
+                              policy_sha=policy_sha)
+        self._after_write()
+        return receipt
 
     # -------------------------------------------------- Verfy Cloud
 
@@ -378,12 +585,16 @@ class Recorder:
 
 
 class _ActionBlock:
-    def __init__(self, rec: Recorder, action: str, *, system: str, kind: str, args: Any, session: str | None):
+    def __init__(self, rec: Recorder, action: str, *, system: str, kind: str, args: Any, session: str | None, guard: bool | None):
         self.rec, self.action_name, self.system, self.kind, self.session = rec, action, system, kind, session
         self.args = jsonable(args if args is not None else {})
+        self.guard = bool(rec.rules) if guard is None else bool(guard)
+        self.decision: dict | None = None
         self.act = Action()
 
     def __enter__(self) -> Action:
+        if self.guard:
+            self.decision = self.rec._guard(self.action_name, system=self.system, kind=self.kind, args=self.args, session=self.session)
         return self.act
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -392,7 +603,7 @@ class _ActionBlock:
         else:
             outcome = {"status": "error", "result": _error_value(exc)}
         self.act.receipt = _safe_write(self.rec, self.action_name, system=self.system, kind=self.kind, args=self.args,
-                                       session=self.session, **outcome, raising=exc is None)
+                                       session=self.session, **outcome, raising=exc is None, decision=self.decision)
         return False
 
 
@@ -401,10 +612,12 @@ def _error_value(exc: BaseException) -> dict:
 
 
 def _safe_write(rec: Recorder, action: str, *, system: str, kind: str, args: Any, status: str, result: Any,
-                session: str | None, raising: bool = True) -> dict | None:
+                session: str | None, raising: bool = True, decision: dict | None = None) -> dict | None:
     """Write a record for an action that already ran. A record that fails must not undo or repeat the action, so by
     default the failure is logged; an over-large record is written again with the hash of the arguments only."""
-    kw = dict(system=system, kind=kind, args=args, result=result, status=status, session=session, approved_by=None)
+    verdict, rules, policy_sha = rec._decision_fields(decision)
+    kw = dict(system=system, kind=kind, args=args, result=result, status=status, session=session,
+              approved_by=(decision or {}).get("approved_by"), verdict=verdict, rules=rules, policy_sha=policy_sha)
     try:
         try:
             receipt = rec._write(action, include_args=rec.include_args, **kw)
@@ -423,7 +636,7 @@ def _safe_write(rec: Recorder, action: str, *, system: str, kind: str, args: Any
 
 
 def _tracker(get: Callable[[], Recorder], action: str, *, system: str, kind: str, args: Callable[..., Any] | None,
-             record_result: bool, session: str | None) -> Callable[[F], F]:
+             record_result: bool, session: str | None, guard: bool | None = None) -> Callable[[F], F]:
     if not isinstance(action, str) or not action.strip():
         raise RecordError("action must not be empty")
     if not isinstance(kind, str) or not _KIND.match(kind):
@@ -447,25 +660,31 @@ def _tracker(get: Callable[[], Recorder], action: str, *, system: str, kind: str
             except Exception as e:  # noqa: BLE001 (recording must not change how the function is called)
                 return {"$unrecorded": type(e).__name__}
 
-        def finish(rec: Recorder, a: Any, ok: bool, value: Any) -> None:
+        def finish(rec: Recorder, a: Any, ok: bool, value: Any, decision: dict | None) -> None:
             if ok:
                 result = jsonable(value, strict=False) if record_result and value is not None else None
-                _safe_write(rec, action, system=system, kind=kind, args=a, status="ok", result=result, session=session)
+                _safe_write(rec, action, system=system, kind=kind, args=a, status="ok", result=result, session=session, decision=decision)
             else:
                 _safe_write(rec, action, system=system, kind=kind, args=a, status="error", result=_error_value(value),
-                            session=session, raising=False)
+                            session=session, raising=False, decision=decision)
+
+        def guarding(rec: Recorder) -> bool:
+            return bool(rec.rules) if guard is None else bool(guard)
 
         if inspect.iscoroutinefunction(fn):
             @functools.wraps(fn)
             async def run_async(*a: Any, **kw: Any) -> Any:
+                import asyncio
                 rec = get()
                 recorded = capture(a, kw)
+                # asking a person can take minutes: wait in a thread, not on the event loop
+                decision = await asyncio.to_thread(rec._guard, action, system=system, kind=kind, args=recorded, session=session) if guarding(rec) else None
                 try:
                     value = await fn(*a, **kw)
                 except BaseException as e:
-                    finish(rec, recorded, False, e)
+                    finish(rec, recorded, False, e, decision)
                     raise
-                finish(rec, recorded, True, value)
+                finish(rec, recorded, True, value, decision)
                 return value
             return run_async  # type: ignore[return-value]
 
@@ -473,12 +692,13 @@ def _tracker(get: Callable[[], Recorder], action: str, *, system: str, kind: str
         def run(*a: Any, **kw: Any) -> Any:
             rec = get()
             recorded = capture(a, kw)
+            decision = rec._guard(action, system=system, kind=kind, args=recorded, session=session) if guarding(rec) else None
             try:
                 value = fn(*a, **kw)
             except BaseException as e:
-                finish(rec, recorded, False, e)
+                finish(rec, recorded, False, e, decision)
                 raise
-            finish(rec, recorded, True, value)
+            finish(rec, recorded, True, value, decision)
             return value
         return run  # type: ignore[return-value]
     return deco
@@ -521,7 +741,7 @@ def record(action: str, **kw: Any) -> dict:
 
 
 def track(action: str, *, system: str = "", kind: str = "other", args: Callable[..., Any] | None = None,
-          record_result: bool = True, session: str | None = None) -> Callable[[F], F]:
+          record_result: bool = True, session: str | None = None, guard: bool | None = None) -> Callable[[F], F]:
     """``@verfy.track("send_email", system="gmail", kind="message")``: record every call, with the default recorder,
     which is created at the first call, not when the module is imported."""
-    return _tracker(default_recorder, action, system=system, kind=kind, args=args, record_result=record_result, session=session)
+    return _tracker(default_recorder, action, system=system, kind=kind, args=args, record_result=record_result, session=session, guard=guard)

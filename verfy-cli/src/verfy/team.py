@@ -39,6 +39,7 @@ from urllib.parse import urlparse
 
 from ._util import redact
 from .fileio import atomic_write
+from .deals import is_reference
 from .receipts import Key, b64u, read_ledger, receipt_hash
 
 BATCH_MAX = 500
@@ -181,7 +182,7 @@ def sync(home: Path, ledger_path: Path, key: Key, *, allow_args: bool = False, t
     if done >= 0 and done < len(receipts) and state.get("head") != receipt_hash(receipts[done]):
         raise TeamError("the local ledger no longer matches what was uploaded (edited or replaced); run `verfy ledger verify`")
     pending = receipts[done + 1:]
-    if not allow_args and any(isinstance(r.get("action"), dict) and "args" in r["action"] for r in pending):
+    if not allow_args and any(isinstance(r.get("action"), dict) and "args" in r["action"] and not is_reference(r["action"]["args"]) for r in pending):
         raise TeamError("some receipts contain tool arguments (include_args); pass --allow-args to upload them anyway")
     client = TeamClient(team["url"], team["token"], transport=transport)
     accepted = duplicates = 0
@@ -323,6 +324,18 @@ def create_share(home: Path, kind: str, *, receipt_hash: str | None = None, expi
     if u is None or not u.hostname or (u.scheme != "https" and u.hostname not in LOCAL_HOSTS) or not re.fullmatch(r"/[ra]/vs_[A-Za-z0-9_-]{32}", u.path):
         raise TeamError("the team service did not answer with a share link")
     return {"id": res.get("id"), "kind": res.get("kind", kind), "url": url, "expires_at": res.get("expires_at")}
+
+
+def attest_incident(home: Path, hashes: list[str], transport: Transport | None = None) -> dict:
+    """Ask Verfy Cloud to attest an incident pack: send the receipts' hashes, in order (never the receipts), and get
+    back Verfy's signed statement of which of them it holds for this organization and since when."""
+    if not hashes or len(hashes) > 10000 or not all(isinstance(h, str) and h.startswith("sha256:") and len(h) == 71 for h in hashes):
+        raise TeamError("an attestation needs 1 to 10000 receipt hashes")
+    res = _client(home, transport).call("POST", "/api/v1/incidents/attest", {"hashes": hashes})
+    st = res.get("attestation") if isinstance(res, dict) else None
+    if not isinstance(st, dict) or st.get("type") != "incident":
+        raise TeamError("the team service did not answer with an attestation")
+    return res
 
 
 def registry_report(home: Path, pins: list[str], transport: Transport | None = None) -> int:

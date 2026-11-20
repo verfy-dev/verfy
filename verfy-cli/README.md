@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.24.0
+    rev: cli-v0.25.0
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -136,7 +136,7 @@ verfy hook install --cursor              # shows the change to ~/.cursor/hooks.j
 verfy hook install --cursor --write      # saves it (a backup is kept); --project for ./.cursor/hooks.json
 ```
 
-Cursor then asks `verfy hook cursor` before terminal commands, file reads, MCP calls and every other tool (preToolUse: file writes, deletes and the rest), each with a signed receipt, and an action that is not allowed stops there. Verfy sets `failClosed` on these, because by default Cursor lets an action through when a hook crashes. Only the terminal and MCP hooks can wait for a person, so elsewhere `ask` becomes `deny`. Cursor also sends prompts to Verfy (a prompt with a secret is stopped) and MCP results (keys and tokens are taken out before the agent reads them). Web search is not covered. This follows [Cursor's hook documentation](https://cursor.com/docs/agent/hooks) and has not yet been run inside Cursor itself.
+Cursor then asks `verfy hook cursor` before terminal commands, file reads, MCP calls and every other tool (preToolUse: file writes, deletes and the rest), each with a signed receipt, and an action that is not allowed stops there. Verfy sets `failClosed` on these, because by default Cursor lets an action through when a hook crashes. Only the terminal and MCP hooks can wait for a person, so elsewhere `ask` becomes `deny`. Cursor also sends prompts to Verfy (a prompt with a secret is stopped) and MCP results (keys and tokens are taken out before the agent reads them). Web search is not covered. This follows [Cursor's hook documentation](https://cursor.com/docs/agent/hooks) and has not yet been run inside Cursor itself. `verfy doctor --live` runs the installed hook exactly as Cursor does, with a harmless and a destructive command in Cursor's format, so you can see on your own machine that it answers and stops what it should.
 
 ## Guard Codex, Gemini CLI, GitHub Copilot and Devin Desktop (Windsurf)
 
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.24.0" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.25.0" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -331,6 +331,103 @@ verfy witness verify proof.json      # Verfy's signed witness statement and the 
 - **Uploads.** `upload="auto"` (default) uploads in the background on an enrolled machine, at most every five minutes, as the hook does; `"now"` after every record; `"off"` only when you call `rec.sync()`.
 - **What it proves.** Who signed the record, in what order, and that it was not changed; on a share link, Verfy's witness statement adds when Verfy first received it. It does not prove the action happened as described: the program that took it says so. A record's `decision.policy_sha256` is `"none"`: no Verfy policy decided it.
 
+### Stop an action before it runs
+
+Give the recorder rules and it checks them before a tracked call runs. A rule covers actions by `kind`, `system` or `action` (names or `*` patterns), can set a limit on a number in the arguments (`over` for one action, `daily` for today's total) and says `ask` (a person approves) or `deny`:
+
+```python
+rec = verfy.Recorder(agent="refund-bot", on_ask="team", rules=[
+    {"id": "big-refund", "kind": "payment", "amount": "amount", "over": 500, "then": "ask"},
+    {"id": "refund-day", "kind": "payment", "amount": "amount", "daily": 2000, "then": "deny"},
+    {"id": "no-drop", "action": "drop_*", "then": "deny"},
+])
+
+@rec.track("refund", system="stripe", kind="payment")
+def refund(order, amount): ...      # over 500: waits for a person in Verfy Cloud; over the day's 2000: never runs
+
+decision = rec.guard("refund", kind="payment", args={"amount": 900})   # or check by hand; raises verfy.ActionDenied
+```
+
+- `on_ask` is `"deny"` (default), `"team"` (Verfy Cloud's approval queue: the person sees the action, the rule and its message, never the arguments) or a function that returns who approved, or nothing to decline.
+- A stopped action is recorded at once with status `blocked` or `declined` and never runs. One that goes ahead names the rules and who approved it in its receipt.
+- It fails closed: a limit whose number is missing counts as over, and an approver that cannot be reached declines. Daily totals are kept per agent on this machine, under a lock, so two processes cannot both spend the last of a limit.
+- Rules also come from `~/.verfy/policy.json` and the team policy (`"actions": [...]`). The format: [docs/spec/rules.md](../docs/spec/rules.md).
+
+### LangChain, the OpenAI Agents SDK and CrewAI
+
+```python
+from verfy.integrations.langchain import VerfyCallbackHandler
+agent.invoke({"input": "..."}, config={"callbacks": [VerfyCallbackHandler(rec, kinds={"refund": "payment"})]})
+
+from verfy.integrations.openai_agents import VerfyRunHooks
+await Runner.run(agent, "Refund order A-1042", hooks=VerfyRunHooks(rec, kinds={"refund": "payment"}))
+
+from verfy.integrations.crewai import VerfyCrewHooks
+with VerfyCrewHooks(rec, kinds={"refund": "payment"}):     # or .register() for every crew in the process
+    crew.kickoff()
+```
+
+Every tool call becomes a receipt, with the recorder's rules checked first: a call they stop raises `ActionDenied` and the tool does not run. None of the frameworks is a dependency of Verfy (`pip install "verfy[langchain]"`, `"verfy[openai-agents]"` or `"verfy[crewai]"` to get them). CrewAI ignores an exception raised in a hook and runs the tool anyway, so Verfy's CrewAI hook never raises: a call it cannot check is blocked, and the agent reads Verfy's reason instead of a result.
+
+### Node.js
+
+`verfy-cli/js/verfy-node.mjs` is the same recorder for Node.js 18 and later, with the same receipts (the tests check each language's receipts with the other):
+
+```js
+import { Recorder } from "./verfy-node.mjs";
+const rec = new Recorder({ agent: "refund-bot" });           // ~/.verfy/node, or VERFY_NODE_HOME
+await rec.record("refund", { system: "stripe", kind: "payment", args: { order: "A-1042", amount: 4999 } });
+const refund = rec.track("refund", async (order, amount) => stripe.refunds.create({ ... }), { kind: "payment" });
+```
+
+Upload its receipts with the CLI: `VERFY_HOME=~/.verfy/node verfy team join CODE`, then `VERFY_HOME=~/.verfy/node verfy sync`.
+
+With the Vercel AI SDK, wrap the tools and every call is a receipt:
+
+```js
+import { withVerfy } from "./verfy-ai-sdk.mjs";
+const tools = withVerfy({ refund: tool({ description, inputSchema, execute }) }, rec, { kinds: { refund: "payment" } });
+await generateText({ model, tools, prompt });
+```
+
+`node scripts/build-npm.mjs` builds both as the npm package `@verfy-dev/receipts` (with types), not yet published.
+
+### Deals two agents sign, and payments tied to a mandate
+
+```python
+offer = seller.offer("sell", kind="payment", counterparty="buyer-bot", terms={"item": "sku-1", "price": 4999})
+deal = buyer.accept(offer)            # checks the offer, signs its own receipt naming it; send `deal` back
+rec.record_payment(49.99, "USD", payee="shop-1", mandate=cart_mandate, mandate_type="cart-mandate")
+```
+
+```bash
+verfy deal verify deal.json           # both signatures, the same terms, the link between the two receipts
+verfy deal hash mandate.json          # the mandate_sha256 a payment receipt names
+VERFY_VERIFIER_KEY=vk_… verfy deal verify deal.json --online   # and when each side reached Verfy, signed by Verfy
+```
+
+The terms, amount and payee are never in a receipt, only hashes and the deal id, so these receipts upload without `--allow-args`. Verfy moves no money and does not check the mandate itself. The format: [docs/spec/deal.md](../docs/spec/deal.md).
+
+### Incident packs
+
+```bash
+verfy incident export --since 2026-11-16T09:00:00Z --until 2026-11-16T12:00:00Z --prove --attest -o incident.json
+verfy incident verify incident.json
+```
+
+Every receipt in the window as one unbroken run of the chain, the key that signed them, with `--prove` Verfy's public-log proof for each, and with `--attest` Verfy's signed statement of which of them it holds and since when (only the hashes are sent). Anyone can check it offline: a receipt left out of the middle, an edited one or a proof for something else fails. The format: [docs/spec/incident.md](../docs/spec/incident.md).
+
+### Verfy's public log
+
+Verfy Cloud adds every receipt it accepts to one public, append-only Merkle tree (RFC 6962, as Certificate Transparency) and signs its size and root daily with its witness key. The tree holds receipt hashes only.
+
+```bash
+verfy log prove sha256:…            # or a receipt file: Verfy's signed log holds this receipt, at this position
+verfy log watch                     # the newest signed head only added to the heads this machine saw before
+```
+
+A head published earlier binds Verfy: it cannot later drop, change or reorder a receipt it accepted without a check failing. The format: [docs/spec/log.md](../docs/spec/log.md).
+
 ## Use it with a sandbox
 
 Verfy's checks are not a sandbox, so it works with two: Claude Code's own, and `verfy run --sandbox` below. Claude Code's sandbox holds shell commands at the operating system level, including a script the agent wrote, which Verfy cannot follow. It does not cover MCP servers, hooks or the built-in file and web tools, which Verfy watches, so use both.
@@ -371,6 +468,34 @@ verfy proxy --name memory -- verfy run --sandbox --allow-write ~/.npm --allow-ho
 If `srt` is missing, or sits in a folder the command could write to, the command does not run (exit 3). It works on macOS and Linux. Native Windows has no sandbox runtime, so there `verfy run --sandbox` goes to `verfy run` inside WSL2, which needs verfy and `srt` installed inside it; without them the command does not run. The policy and the environment are then the ones inside WSL2, and the Windows user's credential folders under `/mnt` are closed too. Otherwise the exit code is the command's own. With `--agent` the hook needs Verfy's folder, so the guard, not the sandbox, keeps the agent out of the signing key.
 
 Receipts then carry `"sandbox": "srt"` (or `"claude-code"` when Claude Code's sandbox is on). That is what this machine states, not a proof. `srt` is a research preview. API keys in your environment stay outside the sandbox unless you pass them, and a key you do pass can leave through any host you allow.
+
+## Attacks no rule names yet
+
+Verfy's rules describe known attacks and the risky shapes they take (code that only exists after decoding, data sent
+out in a DNS name, a browser's saved passwords read, a script piped into a shell). Three more layers catch what no rule
+names yet:
+
+- **Escalation.** A session that tried something Verfy blocked, or several suspicious things, may be steered by an
+  attacker trying variants until one passes. For the next hour every risky action in that session needs a person, and
+  after more tries it is blocked. Reading and editing inside the project go on. Other sessions are not affected.
+- **Novelty.** Verfy learns which programs that reach the network or run inline code, and which hosts, this machine's
+  agents use. After a warm-up of 50 actions, the first time a new one appears a person is asked once. Nothing is
+  learned from a session under escalation, so an attacker cannot teach it.
+- **The rule feed.** When a new attack appears, Verfy publishes a rule for it, signed with its witness key, and
+  `verfy rules update` takes it the same day instead of waiting for a release. A feed rule can only ask or deny, the
+  first key that signs the feed is remembered, and an older feed is refused. Machines enrolled in Verfy Cloud with
+  automatic upload refresh it daily; elsewhere `verfy rules auto on` does.
+
+```bash
+verfy adaptive                      # what was learned here, and sessions under escalation
+verfy adaptive forget host:example.com
+verfy rules update                  # the rules Verfy published since this release
+verfy doctor --live                 # run each installed hook as its agent does: `ls` must pass, `rm -rf ~` must stop
+```
+
+In the policy: `"adaptive": {"escalate": "on" | "off", "novelty": "ask" | "off", "warmup": 50}`. A repository's
+policy can turn them on or lower the warm-up, never switch them off. The format of the feed:
+[docs/spec/rule-feed.md](../docs/spec/rule-feed.md).
 
 ## After the agent reads outside text
 
@@ -415,6 +540,8 @@ JSON merged over `src/verfy/data/default_policy.json`. Precedence: `--policy FIL
 
 ## Receipt format (`verfy.receipt/1`)
 
+Every format, precisely enough to build another implementation: [docs/spec](../docs/spec/README.md).
+
 One JSON object per line in `~/.verfy/ledger.jsonl`: `v, id, seq, prev, issued_at, agent, session, action{server, tool, kind, args_sha256, args?}, decision{verdict, rules, policy_sha256, approved_by?}, outcome{status, result_sha256}, tool_sha256, kid, sig`. `sig` is Ed25519 over the canonical JSON of all other fields; `prev` is the SHA-256 of the previous receipt. Writes are serialized with an OS file lock, so parallel sessions never fork the chain.
 
 `args_sha256` and `result_sha256` are SHA-256 of the value together with a secret salt kept in `~/.verfy/key.json` (from 0.9.0), so a short argument cannot be guessed from a receipt. `verfy ledger hash '{"command": "ls"}'` prints what this machine records for a value.
@@ -426,7 +553,7 @@ verfy scitt export --out statements/ [--issuer URL]     # one COSE_Sign1 per rec
 verfy scitt verify statements/*.cose --pub signer.json  # COSE signature, CWT subject and the receipt's own signature
 ```
 
-Each statement is a COSE_Sign1 (RFC 9052) with alg EdDSA, content type `application/json`, the key id and CWT claims (`iss`, `sub` = the receipt hash) in the protected header, and the canonical receipt as payload: the signed-statement envelope of the IETF SCITT architecture draft. Verfy does not run a transparency service or issue SCITT receipts.
+Each statement is a COSE_Sign1 (RFC 9052) with alg EdDSA, content type `application/json`, the key id and CWT claims (`iss`, `sub` = the receipt hash) in the protected header, and the canonical receipt as payload: the signed-statement envelope of the IETF SCITT architecture draft. Verfy does not issue SCITT receipts; its own public log (`verfy log`, above) is an RFC 6962 Merkle tree of receipt hashes.
 
 ## Tests
 
@@ -436,6 +563,6 @@ cd verfy-cli && python -m unittest discover -s tests     # needs Node for the cr
 
 ## Limits
 
-Rules are pattern matching, not a sandbox; for isolation, use `verfy run --sandbox`. Verfy sees only calls that pass through its hook or gateway. A receipt proves what Verfy decided and that the log was not edited, not what a tool did internally. Keep `~/.verfy/key.json` private.
+Rules are pattern matching, not a sandbox; for isolation, use `verfy run --sandbox`. Escalation, novelty and the rule feed narrow the gap for attacks no rule names yet; they do not close it. Verfy sees only calls that pass through its hook or gateway. A receipt proves what Verfy decided and that the log was not edited, not what a tool did internally. Keep `~/.verfy/key.json` private.
 
 <!-- mcp-name: io.github.verfy-dev/verfy -->

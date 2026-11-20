@@ -1,0 +1,85 @@
+{
+  "note": "a deal two agents signed, made by verfy-cli (verfy/deals.py); verfy-cloud src/core/deals.test.ts checks it",
+  "deal": {
+    "v": "verfy.deal/1",
+    "deal": "deal_4885230fee2332a193f66e21",
+    "terms": {
+      "item": "sku-1",
+      "price": 49.99,
+      "currency": "USD",
+      "note": "ünïcode ✓"
+    },
+    "offer": {
+      "v": "verfy.receipt/1",
+      "id": "rcpt_419cc90c1efc514f",
+      "seq": 0,
+      "prev": null,
+      "issued_at": "2026-11-17T08:24:14.161Z",
+      "agent": "seller-bot",
+      "session": "sess_fcabf65671ad77f7",
+      "action": {
+        "server": "shop",
+        "tool": "sell",
+        "kind": "payment",
+        "args_sha256": "sha256:626508fd4ed12a5c4c61b64ab4fadef4367f45923ec3fe680ee990d777fd7068",
+        "args": {
+          "deal": "deal_4885230fee2332a193f66e21",
+          "terms_sha256": "sha256:93d68921aea694b0e2c9501d9820fa9c136fe0b5306c10b3897d1f4195d33d55",
+          "role": "offer",
+          "counterparty": "buyer-bot"
+        }
+      },
+      "decision": {
+        "verdict": "allow",
+        "rules": [],
+        "policy_sha256": "none"
+      },
+      "outcome": {
+        "status": "ok",
+        "result_sha256": null
+      },
+      "tool_sha256": null,
+      "kid": "atl_11c6643d7fc21f68",
+      "sig": "ePUbbZfu5TVo4dy_7LPs0Spvlvq_Eeah_tJnhSghaks00R673ZpsbBOvrtNtBUMaGLm08rwqEcUCIz2PCGX5DQ"
+    },
+    "offer_key": "yD5NG8VhtUCBEN8io671O9H-1B5A7uy8TsO0QWoHlhM",
+    "accept": {
+      "v": "verfy.receipt/1",
+      "id": "rcpt_25528d0cb4aad21d",
+      "seq": 0,
+      "prev": null,
+      "issued_at": "2026-11-17T08:24:14.182Z",
+      "agent": "buyer-bot",
+      "session": "sess_be4b992007ef79d4",
+      "action": {
+        "server": "shop",
+        "tool": "sell",
+        "kind": "payment",
+        "args_sha256": "sha256:34803668b9c13866d74b90cc9446448b99758f128c3f781fbf1a03a1b5a07f01",
+        "args": {
+          "deal": "deal_4885230fee2332a193f66e21",
+          "terms_sha256": "sha256:93d68921aea694b0e2c9501d9820fa9c136fe0b5306c10b3897d1f4195d33d55",
+          "role": "accept",
+          "offer_receipt": "sha256:864c9c7022b5c21834e181de23bc2b3fe05be8c3fe73fc5b9cf590744754b3a8",
+          "offer_kid": "atl_11c6643d7fc21f68"
+        }
+      },
+      "decision": {
+        "verdict": "allow",
+        "rules": [],
+        "policy_sha256": "none"
+      },
+      "outcome": {
+        "status": "ok",
+        "result_sha256": null
+      },
+      "tool_sha256": null,
+      "kid": "atl_04e2e78484e2e77a",
+      "sig": "X9B6-K58V-bI58enP7Le96elLtFarqKAekT7Eg5wM7PiMbESeOmHn5A0hP5Kz4nGPN2ObLuOd9CxrZ_IqhS1Cg"
+    },
+    "accept_key": "JawJTzu4azsm1xMtWcG4v_9xd1caoHuJVWgFR4qiR6M"
+  },
+  "offer_hash": "sha256:864c9c7022b5c21834e181de23bc2b3fe05be8c3fe73fc5b9cf590744754b3a8",
+  "accept_hash": "sha256:6b3ceca507888a656662252ec0af115b04f603dba19be04bd9640905d0a2feb3",
+  "terms_sha256": "sha256:93d68921aea694b0e2c9501d9820fa9c136fe0b5306c10b3897d1f4195d33d55"
+}

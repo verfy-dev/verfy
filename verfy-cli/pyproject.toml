@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "verfy"
-version = "0.24.0"
+version = "0.25.0"
 description = "Verfy: guard coding-agent tool calls, scan and lock MCP tools, and sign a verifiable receipt for every action."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,13 +34,16 @@ Security = "https://github.com/verfy-dev/verfy-releases/blob/main/SECURITY.md"
 
 [project.optional-dependencies]
 fast = ["cryptography>=43"]
+langchain = ["langchain-core>=0.3"]
+openai-agents = ["openai-agents>=0.2"]
+crewai = ["crewai>=1.15"]
 
 [project.scripts]
 verfy = "verfy.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["verfy", "verfy.data"]
+packages = ["verfy", "verfy.data", "verfy.integrations"]
 
 [tool.setuptools.package-data]
 verfy = ["data/*.json"]
