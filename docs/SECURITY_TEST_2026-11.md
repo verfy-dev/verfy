@@ -58,4 +58,4 @@ Also fixed: MCP prompts were not pinned, the scanner gave an A to a fixed BCC ad
 
 ## What this does not show
 
-Rules are pattern matching, so someone will find more ways past them: a script the agent writes and then runs is the plain example, and it is why the sandbox exists. Found one? See [SECURITY.md](../SECURITY.md#find-a-bypass).
+Rules are pattern matching, so someone will find more ways past them: a script the agent writes and then runs is the plain example, and it is why the sandbox exists. Found one? See [SECURITY.md](../SECURITY.md#break-verfy).
