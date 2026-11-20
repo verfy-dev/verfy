@@ -347,7 +347,7 @@ def literals(text: str, lang: str) -> tuple[list[tuple[int, int, str, str, str]]
     quotes = ("'", '"', "`") if lang != "py" else ("'", '"')
 
     def blank(a: int, b: int) -> None:
-        for k in range(a, b):
+        for k in range(a, min(b, n)):
             if masked[k] != "\n":
                 masked[k] = " "
 
@@ -389,6 +389,7 @@ def literals(text: str, lang: str) -> tuple[list[tuple[int, int, str, str, str]]
                 if text[j] == "\n" and not multiline:
                     break
                 j += 1
+            j = min(j, n)  # a backslash at the very end steps past it
             end = min(j + len(q), n) if j < n and text.startswith(q, j) else j
             body = text[i + len(q):j]
             out.append((i, end, q, prefix, body))
@@ -691,7 +692,10 @@ class _Scan:
     # ---------------------------------------------------------------- reading code
     def code(self, text: str, lang: str, where: str, authored: bool, depth: int, here: str, path: str | None = None) -> None:
         before = len(self.out)
-        self._code(text, lang, where, authored, depth, here)
+        try:
+            self._code(text, lang, where, authored, depth, here)
+        except Exception:  # one file Verfy cannot parse must not drop what the others showed, nor let code through unread
+            self.add("VFY-SCRIPT-002", "ask", f"Verfy could not read {where} before it runs.", authored)
         named = any(f"In {where}" in f["message"] and "[VFY-SELF-006]" in f["message"] for f in self.out[before:])
         if not named and rx(SECRET["text"], "i").search(text):  # the folder and the file named apart, e.g. in a path join
             self.add("VFY-SCRIPT-001", "deny", f"In {where}: [VFY-SELF-006] Names Verfy's folder and its signing key or device token.", authored)
