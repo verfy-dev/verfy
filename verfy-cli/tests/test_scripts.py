@@ -210,6 +210,29 @@ class Scripts(unittest.TestCase):
         pol = load_policy({"home": str(self.home), "workspace": str(self.proj), "disabled_rules": ["VFY-SCRIPT-003"]})
         self.assertEqual(self.run_("python d.py", pol=pol)["verdict"], "allow")
 
+    def test_a_string_ending_in_a_backslash_does_not_hide_a_script(self):
+        # found by tests/test_fuzz_smoke.py: a literal ending the file in a backslash stepped past the text, the scan
+        # raised and the whole call was let through unread
+        self.write("e.py", "import os\nos.system('rm -rf ~')\nx = '\\")
+        self.assertEqual(self.run_("python e.py")["verdict"], "deny")
+
+    def test_code_verfy_cannot_parse_asks_and_the_rest_still_counts(self):
+        from unittest import mock
+        self.write("a.sh", "rm -rf ~\n")
+        self.write("b.py", "print('hi')\n")
+        real = scripts._Scan._code
+
+        def broken(scan, text, lang, *a, **k):
+            if lang == "py":
+                raise RuntimeError("parser bug")
+            return real(scan, text, lang, *a, **k)
+
+        with mock.patch.object(scripts._Scan, "_code", broken):
+            d = self.run_("python b.py && bash a.sh")
+        self.assertEqual(d["verdict"], "deny")
+        self.assertIn("VFY-SCRIPT-002", self.rules(d))
+        self.assertIn("could not read `b.py`", self.text(d))
+
     # ---------------------------------------------------------------- through the hook
     def test_through_the_claude_code_hook(self):
         def payload(tool: str, data: dict) -> dict:
