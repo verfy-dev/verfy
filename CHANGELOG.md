@@ -2,7 +2,7 @@
 
 What changed in the Verfy CLI (`pip install verfy`) and the website. Newest first. Every CLI version is on [PyPI](https://pypi.org/project/verfy/#history) and as standalone builds on the [releases page](https://github.com/verfy-dev/verfy-releases/releases).
 
-## 0.25.0 (2026-11-17)
+## 0.25.0 (2026-11-20)
 
 - **Receipts for any agent.** Any program can now sign a receipt for an action it took, not only a coding agent's tool calls: a refund, an email sent, a row deleted, a deploy. `verfy.Recorder(agent="refund-bot").record("refund", system="stripe", kind="payment", args={...})`, the `@rec.track(...)` decorator (plain and async functions; a raised exception is recorded as `error` and raised again) and the `with rec.action(...)` block write a `verfy.receipt/1` receipt with the same key and chain as the hook, so `verfy verify`, verfy.dev/verify and Verfy Cloud check it like any other. From any other language: `verfy record ACTION --system S --kind K --args JSON`.
   - Only salted hashes of the arguments and the result are kept unless you ask for the arguments (`include_args`, secrets redacted). Decimal, datetime, UUID, sets, dataclasses and pydantic models are recorded as data; integers beyond JavaScript's safe range become text so the Python and JavaScript engines sign the same bytes.
