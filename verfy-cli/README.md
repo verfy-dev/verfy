@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.25.0
+    rev: cli-v0.26.0
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.25.0" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.26.0" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -469,6 +469,29 @@ If `srt` is missing, or sits in a folder the command could write to, the command
 
 Receipts then carry `"sandbox": "srt"` (or `"claude-code"` when Claude Code's sandbox is on). That is what this machine states, not a proof. `srt` is a research preview. API keys in your environment stay outside the sandbox unless you pass them, and a key you do pass can leave through any host you allow.
 
+## Scripts are read before they run
+
+An agent can put the dangerous part of a job in a file and run the file: `python fix.py` looks harmless as a command.
+Before a command runs, Verfy reads the code it starts and checks it with the same rules, then names the file and the
+line: `In fix.py, line 3: [VFY-SH-001] Recursive delete of ~ ...` (VFY-SCRIPT-001).
+
+- **What is read:** a script run by an interpreter (Python, Node.js, Deno, Bun, tsx, Ruby, Perl, PHP, bash, sh, zsh,
+  PowerShell), run directly, sourced or run as a project module; inline code (`python -c`, `node -e`) and
+  here-documents (`python - <<EOF`); package scripts (`npm test`, `npm run build`, the project's install scripts on
+  `npm install`, and the same for yarn, pnpm and bun); a Makefile's recipes for `make`; and, when a command runs
+  project code without naming it (pytest loading `conftest.py`, a build tool), the code the agent wrote this session.
+  A script that starts another is followed three levels deep.
+- **What is checked:** a shell script line by line. Other languages by the commands they hand to the shell
+  (`os.system`, `subprocess`, `child_process`, `system`, backticks), what they delete (`shutil.rmtree`, `fs.rmSync`),
+  the paths and URLs in them (Verfy's key named in pieces, a credential file in code that also uses the network, a
+  denied host), and code that decodes or downloads more code and runs it, which asks first (VFY-SCRIPT-003).
+- **Who wrote it:** code the agent wrote or changed in this session gets every finding; code already in the project
+  only what is blocked outright, so your own scripts do not ask each time. A script written and run by the same
+  command, or downloaded and run at once, cannot be read first and asks (VFY-SCRIPT-002).
+
+Code that builds a command while it runs, or a compiled program, is not followed; the sandbox above holds that. In the
+policy: `"scripts": {"read": "on" | "off"}` (on; a repository's policy cannot switch it off).
+
 ## Attacks no rule names yet
 
 Verfy's rules describe known attacks and the risky shapes they take (code that only exists after decoding, data sent
@@ -563,6 +586,6 @@ cd verfy-cli && python -m unittest discover -s tests     # needs Node for the cr
 
 ## Limits
 
-Rules are pattern matching, not a sandbox; for isolation, use `verfy run --sandbox`. Escalation, novelty and the rule feed narrow the gap for attacks no rule names yet; they do not close it. Verfy sees only calls that pass through its hook or gateway. A receipt proves what Verfy decided and that the log was not edited, not what a tool did internally. Keep `~/.verfy/key.json` private.
+Rules are pattern matching, not a sandbox; for isolation, use `verfy run --sandbox`. Reading scripts before they run, escalation, novelty and the rule feed narrow the gap for attacks no rule names yet; they do not close it. Verfy sees only calls that pass through its hook or gateway. A receipt proves what Verfy decided and that the log was not edited, not what a tool did internally. Keep `~/.verfy/key.json` private.
 
 <!-- mcp-name: io.github.verfy-dev/verfy -->

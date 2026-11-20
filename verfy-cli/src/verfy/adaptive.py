@@ -41,7 +41,7 @@ SESSIONS_MAX = 500
 #: rules whose "ask" says the agent tried something an attacker would; each counts one point
 SUSPICIOUS = ("VFY-SH-005", "VFY-SH-008", "VFY-SH-020", "VFY-SH-021", "VFY-SH-024", "VFY-SH-025", "VFY-SH-026", "VFY-SH-039",
               "VFY-SH-040", "VFY-SH-011", "VFY-SEC-001", "VFY-SELF-", "VFY-SESSION-001", "VFY-TOOL-003", "VFY-TOOL-004",
-              "VFY-TOOL-005", "VFY-NET-001", "VFY-NET-003", "VFY-FS-001", "VFY-IMP-001")
+              "VFY-TOOL-005", "VFY-NET-001", "VFY-NET-003", "VFY-FS-001", "VFY-IMP-001", "VFY-SCRIPT-003")
 INTERPRETERS = re.compile(r"^(?:python[0-9.]*|py|node|deno|bun|perl|ruby|php|pwsh|powershell)(?:\.exe)?$", re.I)
 INLINE_FLAG = re.compile(r"^-(?:c|e|r|command|encodedcommand|ec|enc)$", re.I)
 EXEC_PROGS = {"ssh", "sshpass", "base64", "certutil", "bitsadmin", "osascript", "launchctl", "crontab", "schtasks", "reg",
