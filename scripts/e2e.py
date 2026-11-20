@@ -66,8 +66,8 @@ def check(cond: bool, msg: str, res: subprocess.CompletedProcess | None = None) 
     passed += 1
 
 
-def hook_payload(project: Path, command: str, tool: str = "Bash", tool_input: dict | None = None) -> str:
-    return json.dumps({"session_id": "e2e", "transcript_path": str(project / "t.jsonl"), "cwd": str(project),
+def hook_payload(project: Path, command: str, tool: str = "Bash", tool_input: dict | None = None, session: str = "e2e") -> str:
+    return json.dumps({"session_id": session, "transcript_path": str(project / "t.jsonl"), "cwd": str(project),
                        "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input or {"command": command}})
 
 
@@ -154,9 +154,14 @@ def main() -> int:
           "the hook let the agent read the signing key with cat")
     check(decision(run(hook, 0, stdin=hook_payload(project, "", "Read", {"file_path": str(vhome / "key.json")}), **kw)) == "deny",
           "the hook let the agent read the signing key with the Read tool")
-    check(decision(run(hook, 0, stdin=hook_payload(project, "npm test"), **kw)) != "deny", "the hook denied npm test")
+    # the session above tried four blocked actions: anything that runs code in it is now blocked too (VFY-AD-002),
+    # while a new session runs the tests
+    res = run(hook, 0, stdin=hook_payload(project, "npm test"), **kw)
+    check(decision(res) == "deny" and "VFY-AD-002" in res.stdout, "the hook did not escalate the session that tried four blocked actions", res)
+    check(decision(run(hook, 0, stdin=hook_payload(project, "npm test", session="e2e-new"), **kw)) != "deny",
+          "the hook denied npm test in a new session")
     res = run(["verfy", "verify", "--json"], 0, **kw)
-    check(json.loads(res.stdout)["count"] == 5, "verfy verify did not find exactly the 5 hook receipts", res)
+    check(json.loads(res.stdout)["count"] == 6, "verfy verify did not find exactly the 6 hook receipts", res)
 
     # 8. the Claude Code plugin from this checkout, in a throwaway Claude config folder
     if args.plugin:
