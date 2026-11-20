@@ -423,13 +423,15 @@ class CursorOutputTests(unittest.TestCase):
     def test_a_secret_in_an_mcp_result_is_hidden(self):
         raw = json.dumps({"content": [{"type": "text", "text": f"deploy key: {TOKEN}"}]})
         out = run("cursor", cursor("postToolUse", tool_name="MCP:get_secret", tool_input={}, tool_output=raw))[1]
-        cleaned = json.loads(out["updated_mcp_tool_output"])
+        cleaned = out["updated_mcp_tool_output"]  # an object, as Cursor's hook reference says
+        self.assertIsInstance(cleaned, dict)
         self.assertNotIn(TOKEN, json.dumps(cleaned))
         self.assertIn("[REDACTED:", cleaned["content"][0]["text"])
 
     def test_a_result_that_only_looks_like_json_is_cleaned_as_text(self):
         out = run("cursor", cursor("postToolUse", tool_name="MCP:x", tool_output="{not json " + TOKEN))[1]
-        self.assertNotIn(TOKEN, out["updated_mcp_tool_output"])
+        self.assertIsInstance(out["updated_mcp_tool_output"], dict)
+        self.assertNotIn(TOKEN, json.dumps(out["updated_mcp_tool_output"]))
 
     def test_the_tool_hook_has_no_matcher_a_regex_engine_could_reject(self):
         self.assertNotIn("matcher", hook.with_cursor_hook({})[0]["hooks"]["preToolUse"][0])

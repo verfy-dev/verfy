@@ -71,9 +71,26 @@ def run(command: str, payload: dict, env: dict, timeout: float = TIMEOUT) -> tup
     if exe is None:
         raise FileNotFoundError(f"`{argv[0]}` is not on this PATH, so the agent cannot start the hook")
     t = time.monotonic()
-    p = subprocess.run([exe, *argv[1:]], input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8",
+    # UTF-8 as the agents send it, not \u escapes, so a path with non-ASCII letters is tested as it arrives
+    p = subprocess.run([exe, *argv[1:]], input=json.dumps(payload, ensure_ascii=False), capture_output=True, text=True, encoding="utf-8",
                        timeout=timeout, env=env)  # noqa: S603 - the command the agent's own settings name
     return p.stdout, p.returncode, time.monotonic() - t
+
+
+def _extra_calls(agent: str, cwd: str) -> list[tuple[str, dict, bool]]:
+    """Calls beyond the shell pair, for agents whose other hooks Verfy answers: (what, payload, must be stopped)."""
+    if agent != "cursor":
+        return []
+    home = os.path.expanduser("~")
+    common = {"conversation_id": "verfy-selftest", "generation_id": "verfy-selftest", "workspace_roots": [cwd], "cwd": cwd}
+    return [
+        ("a read of a project file", {**common, "hook_event_name": "beforeReadFile", "file_path": os.path.join(cwd, "README.md"),
+                                      "content": "", "attachments": []}, False),
+        ("a read of ~/.ssh/id_rsa", {**common, "hook_event_name": "beforeReadFile", "file_path": os.path.join(home, ".ssh", "id_rsa"),
+                                     "content": "", "attachments": []}, True),
+        ("a write to Claude Code's settings", {**common, "hook_event_name": "preToolUse", "tool_name": "Write", "tool_use_id": "verfy-selftest",
+                                              "tool_input": {"file_path": os.path.join(home, ".claude", "settings.json"), "contents": "{}"}}, True),
+    ]
 
 
 def check_agent(agent: str, command: str, cwd: str | None = None) -> dict:
@@ -83,9 +100,11 @@ def check_agent(agent: str, command: str, cwd: str | None = None) -> dict:
     seconds = 0.0
     with tempfile.TemporaryDirectory() as tmp:
         env = {**os.environ, "VERFY_HOME": tmp}
-        for cmd, want in ((SAFE, False), (RISKY, True)):
+        calls = [(f"`{cmd}`", _shell_payload(agent, cmd, cwd), want) for cmd, want in ((SAFE, False), (RISKY, True))]
+        for what, payload, want in [*calls, *_extra_calls(agent, cwd)]:
+            cmd = what.strip("`")
             try:
-                out, code, took = run(command, _shell_payload(agent, cmd, cwd), env)
+                out, code, took = run(command, payload, env)
             except FileNotFoundError as e:
                 problems.append(str(e))
                 break

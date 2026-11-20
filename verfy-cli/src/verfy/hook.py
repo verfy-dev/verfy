@@ -14,9 +14,10 @@ locked ledger or any internal error becomes ``fail_mode`` (``ask`` by default,
 runs as a separate command.
 
 ``verfy hook cursor`` does the same for Cursor's terminal, MCP and file read
-hooks. Cursor counts no output as a failure, so there Verfy does answer "allow",
-and a file read cannot wait for a person, so "ask" becomes "deny". Cursor's file
-edits and web search are not covered: no hook documents their input.
+hooks, and for every other tool through preToolUse (file writes and deletes).
+Cursor counts no output as a failure, so there Verfy does answer "allow", and a
+file read or a preToolUse call cannot wait for a person, so "ask" becomes
+"deny". Web search and fetch are not covered: Cursor's hooks do not expose them.
 
 ``verfy hook codex``, ``verfy hook gemini``, ``verfy hook copilot`` and
 ``verfy hook windsurf`` (beta) do the same for Codex CLI, Gemini CLI, GitHub
@@ -112,7 +113,11 @@ def cursor_action(payload: dict[str, Any]) -> dict:
         path = payload.get("file_path")
         if not isinstance(path, str) or not path:
             raise ValueError("no file path in the hook input")
-        return {"server": "cursor", "tool": "read_file", "arguments": {"file_path": path}}
+        # files and rules attached to the read go to the model too, so each is checked like the file itself
+        more = [a.get("file_path") for a in payload.get("attachments") or [] if isinstance(a, dict)]
+        paths = list(dict.fromkeys([path, *[p for p in more if isinstance(p, str) and p]]))
+        actions = [{"server": "cursor", "tool": "read_file", "arguments": {"file_path": p}} for p in paths]
+        return actions[0] if len(actions) == 1 else actions  # type: ignore[return-value]
     if event == "preToolUse":
         data = payload.get("tool_input")
         if isinstance(data, str):
@@ -158,7 +163,8 @@ SHELL_INPUT_TOOLS = {"writestdin", "writetoprocess", "writebash", "sendinput", "
 INPUT_KEYS = ("chars", "input", "text", "data", "keys", "command")
 DELETE_TOOLS = {"delete", "deletefile", "remove", "removefile", "rm", "deletefiles"}
 PATH_KEYS = ("file_path", "filePath", "path", "absolute_path", "notebook_path", "target_file", "file")
-CONTENT_KEYS = ("content", "file_text", "fileText", "new_string", "newString", "new_str", "newStr", "new_source", "code", "text")
+CONTENT_KEYS = ("content", "contents", "file_text", "fileText", "file_content", "fileContent", "new_content", "newContent",
+                "new_string", "newString", "new_str", "newStr", "new_source", "code", "text")
 NO_ASK = ("{agent} cannot wait for a person from a hook, so Verfy blocked this. Ask the user first; "
           "if they agree, they can run it themselves or allow it in the Verfy policy. ")
 
@@ -584,10 +590,29 @@ def side_answer(event: str, payload: dict, get_policy: Callable[[str | None], di
             cleaned, hidden = redact_output(value)
             if not hidden:
                 return {}, 0
-            return {"updated_mcp_tool_output": json.dumps(cleaned) if isinstance(raw, str) and value is not raw else cleaned}, 0
+            # an object, as Cursor's hook reference says, also when the output arrived as a JSON string
+            return {"updated_mcp_tool_output": cleaned if isinstance(cleaned, (dict, list)) else {"content": [{"type": "text", "text": str(cleaned)}]}}, 0
         except Exception:  # noqa: BLE001
             return {}, 0
     return None
+
+
+def read_input(stdin: IO[str]) -> str:
+    """The hook input as text. Agents send UTF-8, but Python decodes a pipe with the system's code page on Windows
+    (cp1251, cp1252, ...), which garbles a path such as C:\\Users\\Жавохир and can fail outright; so the bytes are read
+    and decoded here. A byte-order mark (Windows PowerShell adds one) and UTF-16 (a PowerShell pipe can send it) are
+    handled too."""
+    buf = getattr(stdin, "buffer", None)
+    if buf is None:
+        return stdin.read(MAX_STDIN + 1).removeprefix("\ufeff")
+    data = buf.read(MAX_STDIN + 1)
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16")
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        import locale
+        return data.decode(locale.getpreferredencoding(False) or "utf-8", errors="replace").removeprefix("\ufeff")
 
 
 def run_hook(event: str, *, stdin: IO[str] | None = None, stdout: IO[str] | None = None,
@@ -604,10 +629,10 @@ def run_hook(event: str, *, stdin: IO[str] | None = None, stdout: IO[str] | None
     prepare, to_action, answer = AGENTS[event]
     payload = None
     try:
-        raw = stdin.read(MAX_STDIN + 1)
+        raw = read_input(stdin)
         if len(raw) > MAX_STDIN:
             raise ValueError("hook input is larger than 4 MB")
-        payload = prepare(json.loads(raw.removeprefix("\ufeff")))  # Windows PowerShell adds a BOM when its output encoding is UTF-8
+        payload = prepare(json.loads(raw))
         side = side_answer(event, payload, get_policy, record)
         if side is not None:
             body, code = side

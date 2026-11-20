@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.26.1
+    rev: cli-v0.26.2
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -129,14 +129,14 @@ claude plugin install verfy@verfy
 
 Claude Code then runs `verfy hook pre-tool-use` before every tool call. The agent cannot switch Verfy off through what Verfy sees: changes to the hook settings, `verfy.lock`, the policy, `~/.verfy` or the Verfy install are denied, changes to MCP configs need approval, and so do `verfy lock approve`, `verfy lock check --update`, `verfy lock files --update`, `verfy import --save`, `verfy init --force`, `verfy team enroll` (or `verfy init --url/--code`), `verfy team auto-sync off` and `pip uninstall verfy` when the agent runs them (denied). Verfy answers **deny** or **ask** with the rule and reason, or stays silent so Claude Code's own permissions decide; it never answers allow itself. Any error becomes `ask` (or `deny` with `"fail_mode": "deny"`). The hook never touches the network itself; on a device enrolled in Verfy Cloud with automatic upload it starts `verfy sync` as a separate background process, at most every five minutes.
 
-## Guard Cursor (beta)
+## Guard Cursor
 
 ```bash
 verfy hook install --cursor              # shows the change to ~/.cursor/hooks.json
 verfy hook install --cursor --write      # saves it (a backup is kept); --project for ./.cursor/hooks.json
 ```
 
-Cursor then asks `verfy hook cursor` before terminal commands, file reads, MCP calls and every other tool (preToolUse: file writes, deletes and the rest), each with a signed receipt, and an action that is not allowed stops there. Verfy sets `failClosed` on these, because by default Cursor lets an action through when a hook crashes. Only the terminal and MCP hooks can wait for a person, so elsewhere `ask` becomes `deny`. Cursor also sends prompts to Verfy (a prompt with a secret is stopped) and MCP results (keys and tokens are taken out before the agent reads them). Web search is not covered. This follows [Cursor's hook documentation](https://cursor.com/docs/agent/hooks) and has not yet been run inside Cursor itself. `verfy doctor --live` runs the installed hook exactly as Cursor does, with a harmless and a destructive command in Cursor's format, so you can see on your own machine that it answers and stops what it should.
+Cursor then asks `verfy hook cursor` before terminal commands, file reads, MCP calls and every other tool (preToolUse: file writes, deletes and the rest), each with a signed receipt, and an action that is not allowed stops there. Verfy sets `failClosed` on these, because by default Cursor lets an action through when a hook crashes. Only the terminal and MCP hooks can wait for a person, so elsewhere `ask` becomes `deny`. Cursor also sends prompts to Verfy (a prompt with a secret is stopped) and MCP results (keys and tokens are taken out before the agent reads them). Files attached to a read are checked like the file. Web search and fetch are not covered: Cursor's hooks do not expose them. This follows [Cursor's hook reference](https://cursor.com/docs/agent/hooks), and `tests/test_cursor_spec.py` checks every event against it; we have not run it inside Cursor ourselves. `verfy doctor --live` runs the installed hook exactly as Cursor does, with a harmless and a destructive command in Cursor's format, so you can see on your own machine that it answers and stops what it should.
 
 ## Guard Codex, Gemini CLI, GitHub Copilot and Devin Desktop (Windsurf)
 
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.26.1" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.26.2" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:

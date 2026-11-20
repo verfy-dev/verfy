@@ -2821,7 +2821,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("hook", help="the hook an agent runs before each tool call (pre-tool-use is Claude Code's), or `hook install`")
     p.add_argument("event", choices=[*hooks.AGENTS, "install"])
     which = p.add_mutually_exclusive_group()
-    which.add_argument("--cursor", action="store_true", help="install Cursor's hook into ~/.cursor/hooks.json (beta)")
+    which.add_argument("--cursor", action="store_true", help="install Cursor's hook into ~/.cursor/hooks.json")
     which.add_argument("--codex", action="store_true", help="install Codex CLI's hook into ~/.codex/hooks.json (beta)")
     which.add_argument("--gemini", action="store_true", help="install Gemini CLI's hook into ~/.gemini/settings.json (beta)")
     which.add_argument("--copilot", action="store_true", help="install GitHub Copilot's hook (CLI and VS Code) into ~/.copilot/hooks/verfy.json (beta)")
