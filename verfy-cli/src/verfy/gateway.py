@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, IO
 
 from .imports import blocked_tools
-from . import adaptive, sessions
+from . import adaptive, scripts, sessions
 from . import team as teamlib
 from ._util import redact_output, flatten_strings
 from .lock import LockError, load_lock, pin, safe_name, save_seen, server_pins, update
@@ -227,6 +227,7 @@ class Gateway:
             decision["findings"] = [{"rule": "VFY-IMP-001", "verdict": "deny", "message": f"`{name}` is rated high by {f['source']} ({f['rule']}): {f['message'][:200]}"}, *decision.get("findings", [])]
             decision["verdict"] = "deny"
         # the state sits with the ledger (Verfy's folder), never next to a project's verfy.lock
+        scripts.apply(self.ledger.path.parent, self.session, [(action, decision)], self.policy)
         adaptive.apply(self.ledger.path.parent, self.session, [(action, decision)], self.policy)
         v = decision["verdict"]
         # what a server answers is outside text, unless the policy trusts that tool

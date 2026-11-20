@@ -61,6 +61,11 @@ def load_policy(source: str | os.PathLike | dict | None = None, *, workspace: st
         if not isinstance(pol["adaptive"], dict):
             raise ValueError("adaptive must be an object")
         settings(pol)
+    if "scripts" in pol:
+        from .scripts import settings as script_settings
+        if not isinstance(pol["scripts"], dict):
+            raise ValueError("scripts must be an object")
+        script_settings(pol)
     return pol
 
 
@@ -112,6 +117,8 @@ def tighten(base: dict, project: Any) -> dict:
         if isinstance(w, int) and not isinstance(w, bool) and 0 <= w < mine.get("warmup", 50):
             mine["warmup"] = w
         out["adaptive"] = mine
+    if part("scripts").get("read") == "on":
+        out["scripts"] = {**(out.get("scripts") or {}), "read": "on"}
     for key in ("max_per_call", "ask_above", "daily_budget"):
         v = pay.get(key)
         if isinstance(v, (int, float)) and not isinstance(v, bool) and (out["payments"].get(key) is None or v < out["payments"][key]):

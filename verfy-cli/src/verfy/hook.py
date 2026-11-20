@@ -40,7 +40,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, IO
 
-from . import adaptive, sessions
+from . import adaptive, scripts, sessions
 from .policy import load_policy
 from ._util import redact_output, scan_secrets
 from .precheck import check
@@ -487,6 +487,8 @@ def run_pre_tool_use(payload: Any, *, get_policy: Callable[[str | None], dict], 
     # outcome of the whole call, so a file that passed in a blocked patch is not recorded as written.
     source = sessions.source_of(home, tracked) if tracked else None
     checked = [(action, check(action, policy, {"untrusted": source} if source else None)) for action in actions]
+    # what a command starts: the scripts it runs, read before they run (scripts.py)
+    checked = scripts.apply(home, session, checked, policy, cwd)
     if home is not None:
         # what no rule names: escalation in a session that already tried something blocked, and programs or hosts this
         # machine has never seen (adaptive.py)

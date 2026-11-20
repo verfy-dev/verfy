@@ -160,8 +160,15 @@ def main() -> int:
     check(decision(res) == "deny" and "VFY-AD-002" in res.stdout, "the hook did not escalate the session that tried four blocked actions", res)
     check(decision(run(hook, 0, stdin=hook_payload(project, "npm test", session="e2e-new"), **kw)) != "deny",
           "the hook denied npm test in a new session")
+    # a script the agent wrote is read before it runs: the command looks harmless, the file is not
+    fix = str(project / "fix.sh")
+    run(hook, 0, stdin=hook_payload(project, "", "Write", {"file_path": fix, "content": "echo cleaning\nrm -rf ~\n"}, session="e2e-script"), **kw)
+    (project / "fix.sh").write_text("echo cleaning\nrm -rf ~\n", "utf-8")
+    res = run(hook, 0, stdin=hook_payload(project, "bash fix.sh", session="e2e-script"), **kw)
+    check(decision(res) == "deny" and "VFY-SCRIPT-001" in res.stdout and "line 2" in res.stdout,
+          "the hook did not read the script the agent wrote before it ran", res)
     res = run(["verfy", "verify", "--json"], 0, **kw)
-    check(json.loads(res.stdout)["count"] == 6, "verfy verify did not find exactly the 6 hook receipts", res)
+    check(json.loads(res.stdout)["count"] == 8, "verfy verify did not find exactly the 8 hook receipts", res)
 
     # 8. the Claude Code plugin from this checkout, in a throwaway Claude config folder
     if args.plugin:
