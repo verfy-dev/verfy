@@ -452,7 +452,7 @@ class _State:
 
 
 class _Scan:
-    def __init__(self, pol: dict, here: str, written: set[str], pending: set[str], started: float | None):
+    def __init__(self, pol: dict, here: str, written: set[str], pending: set[str], started: float | None, full: bool = False):
         self.pol = pol
         self.ctx = _Ctx(pol)
         self.home = str(pol["home"])
@@ -461,6 +461,7 @@ class _Scan:
         self.written = written
         self.pending = pending
         self.started = started
+        self.full = full  # a person asked (`verfy check`): every finding counts, whoever wrote the file
         self.out: list[dict] = []
         self.seen: set[str] = set()
         self.budget = BUDGET
@@ -487,6 +488,8 @@ class _Scan:
         return os.path.normcase(os.path.normpath(path))
 
     def authored(self, path: str) -> bool:
+        if self.full:
+            return True
         k = self.key(path)
         if k in self.written or k in self.pending:
             return True
@@ -947,7 +950,7 @@ def _prune(data: dict, now: float) -> None:
 
 
 def apply(home: Path | None, session: str, checked: list[tuple[dict, dict]], policy: dict, cwd: str | None = None,
-          now: float | None = None) -> list[tuple[dict, dict]]:
+          now: float | None = None, full: bool = False) -> list[tuple[dict, dict]]:
     """Add what the scripts a call starts would do to the rules' decisions for that call, and remember the files it
     writes. Returns the decisions, changed in place."""
     if not checked:
@@ -989,7 +992,7 @@ def apply(home: Path | None, session: str, checked: list[tuple[dict, dict]], pol
         cmd = _shell_text(args if isinstance(args, dict) else {})
         if not cmd.strip():
             continue
-        scan = _Scan(pol, here, written, pending, started)
+        scan = _Scan(pol, here, written, pending, started, full)
         try:
             for _, lang, body in shell_units(cmd)[1]:
                 scan.code(body, lang, "the here-document in this command", True, 1, here)

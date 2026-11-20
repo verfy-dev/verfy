@@ -220,6 +220,7 @@ def cmd_init(args) -> int:
     print("  verfy scan --discover           the findings for each MCP server in your agents' configs")
     if not hook:
         print("  verfy setup --write             guard every agent found here at once: hooks and MCP gateway (`verfy setup` shows it first)")
+    print("  verfy doctor --live             check that each agent's hook answers, lets `ls` run and stops `rm -rf ~`")
     print("  verfy wrap <config>             put the MCP servers of another config behind the gateway")
     if not code:
         print("  verfy team enroll --url URL --code CODE   connect this machine to Verfy Cloud (code from Dashboard > Devices)")
@@ -545,6 +546,8 @@ def cmd_check(args) -> int:
     else:
         raise SystemExit("verfy check: give a shell command, or --tool NAME --args JSON")
     r = check(action, pol, {"spent_today": args.spent_today})
+    from . import scripts
+    scripts.apply(None, "check", [(action, r)], pol, os.getcwd(), full=True)  # and the scripts the command starts
     if args.json:
         print(json.dumps(r, indent=2, ensure_ascii=False))
     else:
@@ -2469,7 +2472,18 @@ def cmd_demo(args) -> int:
             "after three, it is blocked (escalation, see `verfy adaptive`). The demo turns that off to show each rule on its own.\n", "2"))
     print(f"Ledger: {res['count']} signed receipts, " + (c("chain verified", "32;1") if res["ok"] else c("verification FAILED", "31;1")))
     print(f"Try:    $env:VERFY_HOME = \"{home}\"; verfy ledger show" if os.name == "nt" else f"Try:    VERFY_HOME={home} verfy ledger show")
+    print("Next:   verfy init      guard the agents on this machine for real (asks before changing anything)")
     return 0 if res["ok"] else 1
+
+
+START = """Verfy checks what an AI agent does before it runs, stops the risky part and signs a receipt for each action.
+
+  1. verfy demo             see it work in a few seconds (a fake server, nothing on your machine is touched)
+  2. verfy init             set up this machine: key, policy and every agent's hook (asks first)
+  3. verfy doctor --live    check that each agent's hook answers, lets `ls` run and stops `rm -rf ~`
+
+Then work as usual: a blocked call says which rule stopped it. All commands: verfy --help
+Docs: https://verfy.dev/docs"""
 
 
 # ---------------------------------------------------------------- main
@@ -2912,6 +2926,9 @@ def main(argv: list[str] | None = None) -> int:
     if not hasattr(args, "fn"):
         if getattr(args, "command_name", None) in ("ledger", "lock", "team", "scitt", "witness", "deal", "log", "incident", "adaptive", "rules"):
             ap.parse_args([args.command_name, "--help"])
+        if not argv:
+            print(START)  # a first run: three steps, not forty commands
+            return 0
         ap.print_help()
         return 0
     try:

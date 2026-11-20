@@ -9,6 +9,10 @@
 
 *The server changes the tool's description after you approved it. Verfy notices the new SHA-256 and blocks the call. Try it on [the website](https://verfy.dev/).*
 
+<img src="docs/assets/verfy-script-check.gif" width="640" alt="An agent's fix.py has os.system('rm -rf ~') on line 3. verfy check python fix.py reads the file before it runs and denies it with VFY-SCRIPT-001, naming fix.py, line 3.">
+
+*`python fix.py` looks harmless as a command. Verfy reads the script before it runs and names the line that would wipe the home folder.*
+
 ▶ [The 60-second version](docs/assets/verfy-rug-pull.mp4) (MP4, 1.1 MB): pin the tools, the server ships an update, `verfy lock check` fails, the gateway hides the tool and denies the call. Recorded with verfy 0.17.0: every terminal line is real output of its demo server (`python -m verfy.demo_server --rugpull`).
 
 **For teams using Claude Code, with Cursor in beta: if a tool your agent uses changes in secret, Verfy stops it and signs a receipt for every call it checks.**
