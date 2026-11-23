@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -21,6 +22,7 @@ from typing import Callable
 
 from . import hook as hooks
 from . import wrapcfg
+from .sandbox import RUNTIME_INSTALL
 
 VSCODE_USER = (("AppData", "Roaming", "Code", "User"), ("Library", "Application Support", "Code", "User"), (".config", "Code", "User"))
 DESKTOP = (("AppData", "Roaming", "Claude"), ("Library", "Application Support", "Claude"), (".config", "Claude"))
@@ -219,6 +221,21 @@ def terminal_profile(platform: str, exe: str, wsl: str | None) -> dict | None:
     return {"path": exe, "args": ["run", "--sandbox", "--", shell, "-l"]}
 
 
+def sandbox_missing(platform: str, wsl: str | None, which=shutil.which, run=subprocess.run) -> str | None:
+    """Why the sandboxed terminal could not start here, or None. Checked before the profile is written: a profile whose
+    sandbox is missing leaves the editor with a terminal that does not open, so the agent could run nothing at all."""
+    if platform_key(platform) == "windows":
+        if not wsl:
+            return "WSL2 is not installed, and on Windows the sandbox runs inside it"
+        try:
+            found = run([wsl, "--exec", "bash", "-lc", "command -v verfy && command -v srt"], stdin=subprocess.DEVNULL,
+                        capture_output=True, timeout=60).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            found = False
+        return None if found else f"verfy and srt are not both installed inside WSL2 (pip install verfy, then {RUNTIME_INSTALL})"
+    return None if which("srt") else f"srt, the sandbox runtime, is not installed ({RUNTIME_INSTALL})"
+
+
 def with_sandbox_terminal(settings: dict, on: bool, platform: str, profile: dict | None) -> tuple[dict, bool]:
     key = platform_key(platform)
     out = json.loads(json.dumps(settings))
@@ -246,13 +263,16 @@ def with_sandbox_terminal(settings: dict, on: bool, platform: str, profile: dict
     return out, changed
 
 
-def terminal_plan(home: Path, on: bool, platform: str, exe: str, wsl: str | None) -> list[dict]:
-    """One item per IDE settings file. A settings file with comments is not rewritten: the comments would be lost."""
+def terminal_plan(home: Path, on: bool, platform: str, exe: str, wsl: str | None, missing: str | None = None) -> list[dict]:
+    """One item per IDE settings file. A settings file with comments is not rewritten: the comments would be lost.
+    `missing` is what `sandbox_missing` found: then nothing is turned on, and turning it off still works."""
     profile = terminal_profile(platform, exe, wsl)
     out = []
     for ide, path in ide_settings(home):
         item = {"agent": ide, "kind": "terminal", "path": path}
         try:
+            if on and missing:
+                raise ValueError(f"{missing}, so its terminal would not open. Nothing was changed")
             text = path.read_text("utf-8-sig") if path.exists() else "{}"
             try:
                 current = json.loads(text) if text.strip() else {}
