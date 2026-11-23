@@ -2,7 +2,7 @@
 #
 #   repos:
 #     - repo: https://github.com/verfy-dev/verfy
-#       rev: cli-v0.26.3
+#       rev: cli-v0.26.4
 #       hooks:
 #         - id: verfy-mcp-config
 #         - id: verfy-lock        # optional: starts the MCP servers

