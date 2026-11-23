@@ -19,11 +19,12 @@ Cursor counts no output as a failure, so there Verfy does answer "allow", and a
 file read or a preToolUse call cannot wait for a person, so "ask" becomes
 "deny". Web search and fetch are not covered: Cursor's hooks do not expose them.
 
-``verfy hook codex``, ``verfy hook gemini``, ``verfy hook copilot`` and
-``verfy hook windsurf`` (beta) do the same for Codex CLI, Gemini CLI, GitHub
-Copilot (the CLI and VS Code) and Windsurf. Codex, Gemini, Windsurf and the
-Copilot CLI cannot wait for a person from a hook, so there "ask" becomes a block
-that tells the agent to ask the user. What an adapter cannot read is blocked.
+``verfy hook codex``, ``verfy hook gemini``, ``verfy hook copilot``, ``verfy hook devin``
+and ``verfy hook windsurf`` (Windsurf releases before the rename to Devin Desktop) do the
+same for Codex CLI, Gemini CLI, GitHub Copilot (the CLI and VS Code), Devin Desktop and
+Devin CLI, and old Windsurf. Copilot asks the person where it can; Codex, Devin and
+Windsurf cannot wait for a person from a hook, so there "ask" becomes a block that tells
+the agent to ask the user. What an adapter cannot read is blocked.
 
 Reference: https://code.claude.com/docs/en/hooks, https://cursor.com/docs/agent/hooks,
 https://developers.openai.com/codex/hooks, https://geminicli.com/docs/hooks/,
@@ -34,6 +35,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 import shlex
 import sys
@@ -444,15 +446,25 @@ DEVIN_TOOLS = {"exec", "read", "write", "edit", "apply_patch", "notebook_read", 
                "read_subagent", "request_scope", "mcp_list_servers", "mcp_list_tools", "mcp_call_tool", "mcp_read_resource"}
 
 
+def copilot_through_claude(payload: Any) -> bool:
+    """A PreToolUse call Copilot sends through Claude Code's settings (.claude/settings.json, which Copilot also reads): its
+    payload has a `timestamp` and no `transcript_path`; Claude Code's has a transcript and no timestamp."""
+    return isinstance(payload, dict) and "timestamp" in payload and "transcript_path" not in payload and \
+        payload.get("hook_event_name") == "PreToolUse"
+
+
 def devin_action(payload: dict) -> dict | list[dict]:
     return tool_action("devin", str(payload.get("tool_name") or ""), payload.get("tool_input"))
 
 
 def devin_answer(out: dict | None, payload: Any) -> tuple[dict | None, str | None, int]:
+    """Exit code 2 blocks; Devin reads the reason from {"decision": "block", "reason": ...} on stdout, so it goes there as
+    well as to stderr (Devin's hook reference, lifecycle hooks)."""
     if out is None:
         return None, None, 0
     verdict, reason = _decision(out)
-    return None, (NO_ASK.format(agent="Devin") if verdict == "ask" else "") + reason, 2
+    reason = (NO_ASK.format(agent="Devin") if verdict == "ask" else "") + reason
+    return {"decision": "block", "reason": reason}, reason, 2
 
 
 def devin_hook_installed(home: Path | None = None) -> bool:
@@ -647,6 +659,11 @@ def run_hook(event: str, *, stdin: IO[str] | None = None, stdout: IO[str] | None
             _prepare, to_action, answer = AGENTS["devin"]
             if record is not None:
                 record = functools.partial(record, agent="devin")
+        elif event == "pre-tool-use" and copilot_through_claude(payload):
+            # Copilot reads Claude Code's settings too and runs this hook, but reads only a top-level permissionDecision
+            _prepare, to_action, answer = AGENTS["copilot"]
+            if record is not None:
+                record = functools.partial(record, agent="copilot")
         out = run_pre_tool_use(payload, get_policy=get_policy, record=record, home=home, to_action=to_action)
     except Exception as e:  # noqa: BLE001 - every failure must become ask/deny, never allow
         mode = "ask"
@@ -795,6 +812,14 @@ def with_devin_hook(config: dict) -> tuple[dict, bool]:
     return with_hook(config, entry={"matcher": "", "hooks": [{"type": "command", "command": "verfy hook devin", "timeout": 30}]})
 
 
+def copilot_hooks_path(project: bool, cwd: Path | None = None) -> Path:
+    """.github/hooks/verfy.json in a project; otherwise ~/.copilot/hooks/verfy.json, or $COPILOT_HOME/hooks/ when it is set."""
+    if project:
+        return (cwd or Path.cwd()) / ".github" / "hooks" / "verfy.json"
+    base = os.environ.get("COPILOT_HOME")
+    return (Path(base) if base else Path.home() / ".copilot") / "hooks" / "verfy.json"
+
+
 def _under(home_part: tuple[str, ...], project_part: tuple[str, ...]) -> Callable[..., Path]:
     def path(project: bool, cwd: Path | None = None) -> Path:
         return (cwd or Path.cwd()).joinpath(*project_part) if project else Path.home().joinpath(*home_part)
@@ -807,7 +832,7 @@ INSTALL: dict[str, tuple[str, Callable[..., Path], Callable[[dict], tuple[dict, 
     "cursor": ("Cursor", cursor_hooks_path, with_cursor_hook, (".cursor",)),
     "codex": ("Codex CLI", _under((".codex", "hooks.json"), (".codex", "hooks.json")), with_codex_hook, (".codex",)),
     "gemini": ("Gemini CLI", _under((".gemini", "settings.json"), (".gemini", "settings.json")), with_gemini_hook, (".gemini",)),
-    "copilot": ("Copilot", _under((".copilot", "hooks", "verfy.json"), (".github", "hooks", "verfy.json")), with_copilot_hook, (".copilot",)),
+    "copilot": ("Copilot", copilot_hooks_path, with_copilot_hook, (".copilot",)),
     "windsurf": ("Windsurf", _under((".codeium", "windsurf", "hooks.json"), (".windsurf", "hooks.json")), with_windsurf_hook, (".codeium", "windsurf")),
     "devin": ("Devin Desktop", devin_config_path, with_devin_hook, (".devin",)),
 }

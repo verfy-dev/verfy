@@ -2166,7 +2166,7 @@ def cmd_hook(args) -> int:
         else:
             print(f"Added `{hooks.COMMANDS[agent]}` to {path}.")
             if agent in INSTALL_NOTES:
-                print(f"{INSTALL_NOTES[agent]} (beta)\n{CHECK_NOTE}")
+                print(f"{INSTALL_NOTES[agent]}\n{CHECK_NOTE}")
         return 0
     agent = {"pre-tool-use": None, "cursor": "cursor", "prompt": None}.get(args.event, args.event)  # the prompt guard names its agent itself
     record = functools.partial(_hook_record, agent=agent) if agent else _hook_record
@@ -2836,9 +2836,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("event", choices=[*hooks.AGENTS, "install"])
     which = p.add_mutually_exclusive_group()
     which.add_argument("--cursor", action="store_true", help="install Cursor's hook into ~/.cursor/hooks.json")
-    which.add_argument("--codex", action="store_true", help="install Codex CLI's hook into ~/.codex/hooks.json (beta)")
-    which.add_argument("--gemini", action="store_true", help="install Gemini CLI's hook into ~/.gemini/settings.json (beta)")
-    which.add_argument("--copilot", action="store_true", help="install GitHub Copilot's hook (CLI and VS Code) into ~/.copilot/hooks/verfy.json (beta)")
+    which.add_argument("--codex", action="store_true", help="install Codex CLI's hook into ~/.codex/hooks.json")
+    which.add_argument("--gemini", action="store_true", help="install Gemini CLI's hook into ~/.gemini/settings.json")
+    which.add_argument("--copilot", action="store_true", help="install GitHub Copilot's hook (CLI and VS Code) into ~/.copilot/hooks/verfy.json ($COPILOT_HOME/hooks when set)")
     which.add_argument("--windsurf", action="store_true", help="install the hook of Windsurf releases before Devin Desktop into ~/.codeium/windsurf/hooks.json")
     which.add_argument("--devin", action="store_true", help="install the hook of Devin Desktop (Windsurf's new name) and Devin CLI into ~/.config/devin/config.json")
     p.add_argument("--project", action="store_true", help="install into this project (./.claude, ./.cursor, ./.codex, ./.gemini, ./.github/hooks or ./.windsurf) instead of your home folder")
