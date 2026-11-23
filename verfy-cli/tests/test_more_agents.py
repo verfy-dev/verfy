@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -857,6 +858,39 @@ class SandboxTerminalTests(unittest.TestCase):
         item = agents.apply(agents.terminal_plan(self.home, True, "linux", "verfy", None))[0]
         self.assertEqual(item["state"], "error")
         self.assertIn("// my font", p.read_text("utf-8"))
+
+    def test_nothing_is_turned_on_when_the_sandbox_is_missing(self):
+        from verfy import agents
+        p = self.settings("Code", {"editor.fontSize": 14})
+        item = agents.apply(agents.terminal_plan(self.home, True, "linux", "verfy", None, "srt is not installed"))[0]
+        self.assertEqual(item["state"], "error")
+        self.assertIn("would not open", item["error"])
+        self.assertEqual(json.loads(p.read_text("utf-8")), {"editor.fontSize": 14})
+        agents.apply(agents.terminal_plan(self.home, True, "linux", "verfy", None))
+        off = agents.apply(agents.terminal_plan(self.home, False, "linux", "verfy", None, "srt is not installed"))[0]
+        self.assertNotEqual(off["state"], "error")
+        self.assertEqual(json.loads(p.read_text("utf-8")), {"editor.fontSize": 14})
+
+    def test_the_sandbox_is_looked_for_before_the_profile_is_written(self):
+        from verfy import agents
+        self.assertIsNone(agents.sandbox_missing("linux", None, which=lambda n: "/usr/local/bin/srt"))
+        self.assertIn("srt", agents.sandbox_missing("darwin", None, which=lambda n: None))
+        self.assertIn("WSL2", agents.sandbox_missing("win32", None))
+        calls = []
+
+        def run(args, **kw):
+            calls.append((args, kw))
+            return subprocess.CompletedProcess(args, self.code)
+        self.code = 0
+        self.assertIsNone(agents.sandbox_missing("win32", "C:\\wsl.exe", run=run))
+        self.assertEqual(calls[0][0], ["C:\\wsl.exe", "--exec", "bash", "-lc", "command -v verfy && command -v srt"])
+        self.assertIs(calls[0][1]["stdin"], subprocess.DEVNULL)
+        self.code = 1
+        self.assertIn("inside WSL2", agents.sandbox_missing("win32", "C:\\wsl.exe", run=run))
+
+        def broken(args, **kw):
+            raise subprocess.TimeoutExpired(args, 60)
+        self.assertIn("inside WSL2", agents.sandbox_missing("win32", "C:\\wsl.exe", run=broken))
 
 
 class SandboxProfileTests(unittest.TestCase):

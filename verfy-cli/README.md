@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.26.4
+    rev: cli-v0.26.5
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -104,7 +104,7 @@ Download `verfy-vscode.vsix` from the [latest release](https://github.com/verfy-
 - it shows in the status bar whether the agents are guarded.
 
 ```bash
-verfy setup --sandbox-terminal on --write    # the editors' terminal opens inside the sandbox (beta; WSL2 on Windows)
+verfy setup --sandbox-terminal on --write    # the editors' terminal opens inside the sandbox (WSL2 on Windows)
 verfy setup --sandbox-terminal off --write   # back to the normal terminal
 ```
 
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.26.4" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.26.5" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:

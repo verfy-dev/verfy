@@ -1995,7 +1995,9 @@ def cmd_setup(args) -> int:
     if args.system:
         return _setup_system(args)
     if args.sandbox_terminal:
-        items = agentlib.terminal_plan(home, args.sandbox_terminal == "on", sys.platform, shutil.which("verfy") or "verfy", shutil.which("wsl.exe"))
+        on, wsl = args.sandbox_terminal == "on", shutil.which("wsl.exe")
+        missing = agentlib.sandbox_missing(sys.platform, wsl) if on else None
+        items = agentlib.terminal_plan(home, on, sys.platform, shutil.which("verfy") or "verfy", wsl, missing)
         if not items:
             print("No IDE found here (looked for the settings of VS Code, Cursor and Windsurf).")
             return 0
@@ -2829,7 +2831,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--hooks-only", action="store_true", help="add the hooks and leave the MCP configs as they are")
     p.add_argument("--system", action="store_true", help="put the Claude Code and Cursor hooks in machine-wide files that an agent running as you cannot change (needs administrator rights or sudo)")
     p.add_argument("--undo", action="store_true", help="take Verfy out again: its hooks, the gateway in front of MCP servers and the sandboxed terminal; everything else in those files, and your key and receipts, stay (shows the changes; --write makes them)")
-    p.add_argument("--sandbox-terminal", choices=["on", "off"], help="make the terminal of VS Code, Cursor and Windsurf open inside the sandbox, so their AI agents' commands run there (beta; on Windows through WSL2)")
+    p.add_argument("--sandbox-terminal", choices=["on", "off"], help="make the terminal of VS Code, Cursor and Windsurf open inside the sandbox, so their AI agents' commands run there (on Windows through WSL2; nothing changes if the sandbox is not installed)")
     p.set_defaults(fn=cmd_setup)
 
     p = sub.add_parser("hook", help="the hook an agent runs before each tool call (pre-tool-use is Claude Code's), or `hook install`")
