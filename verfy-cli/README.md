@@ -96,7 +96,7 @@ For GitLab, copy [`examples/ci/gitlab-ci.yml`](https://github.com/verfy-dev/verf
 
 A prompt that contains an API key, token or private key is stopped before it is sent, in Claude Code, Codex and Cursor, with a signed receipt (VFY-PROMPT-001). `"prompt_secrets": "off"` in the policy turns this off.
 
-## In VS Code, Cursor and Windsurf (beta)
+## In VS Code, Cursor and Devin Desktop (Windsurf)
 
 Download `verfy-vscode.vsix` from the [latest release](https://github.com/verfy-dev/verfy-releases/releases/latest) and install it in the editor: Extensions > ... > Install from VSIX. The extension does the same as the commands here:
 - it installs the CLI if it is missing, in a terminal you can see;
