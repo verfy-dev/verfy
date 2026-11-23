@@ -15,11 +15,11 @@
 
 ▶ [The 60-second version](docs/assets/verfy-rug-pull.mp4) (MP4, 1.1 MB): pin the tools, the server ships an update, `verfy lock check` fails, the gateway hides the tool and denies the call. Recorded with verfy 0.17.0: every terminal line is real output of its demo server (`python -m verfy.demo_server --rugpull`).
 
-**For teams using Claude Code, with Cursor in beta: if a tool your agent uses changes in secret, Verfy stops it and signs a receipt for every call it checks.**
+**Stop what your agent shouldn't do. Prove what it did.** For Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot and Devin: Verfy checks each tool call before it runs, stops a tool that changes in secret, and signs a receipt for every call it checks.
 
 **Where to go:** bugs and questions in [issues](https://github.com/verfy-dev/verfy-releases/issues); security reports privately, as [SECURITY.md](https://github.com/verfy-dev/verfy-releases/blob/main/SECURITY.md) describes.
 
-**The Verfy CLI is MIT and always will be. Verfy Cloud is a paid hosted service** (in beta, not on sale yet). This repository is the CLI; the hosted service is developed separately.
+**The Verfy CLI is MIT and always will be. Verfy Cloud is a paid hosted service** (free for now; paid plans are not on sale yet). This repository is the CLI; the hosted service is developed separately.
 
 Verfy checks every tool call a coding agent makes against your policy before it runs, locks the MCP tool definitions the agent may use, and writes an Ed25519-signed, hash-chained receipt for every call it checks. Verfy Cloud, the hosted service, gives an organization one policy, tool-change approvals, device management, an audit log and evidence exports that anyone can verify offline.
 
