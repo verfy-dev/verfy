@@ -266,8 +266,10 @@ def _normalize(seg: dict) -> dict:
     return s
 
 
-def parse_shell(cmd: str, depth: int = 0) -> list[dict]:
+def parse_shell(cmd: str, depth: int = 0, data: bool = True) -> list[dict]:
     out: list[dict] = []
+    if data and depth == 0:
+        cmd = strip_data_heredocs(cmd)
     for raw in tokenize(cmd):
         s = _normalize(raw)
         s["depth"] = depth
@@ -368,6 +370,114 @@ def _substituted(cmd: str) -> str:
         value = m.group(2).strip("'\"")
         out = re.sub(r"\$(?:" + m.group(1) + r"\b|\{" + m.group(1) + r"\})", lambda _: value, out)
     return out
+
+
+# A here-document that only writes text into a documentation file is that file's text, not commands. Any other
+# here-document keeps the plain reading, in which every line of its body is checked as a command.
+DATA_SUFFIXES = (".md", ".markdown", ".txt", ".rst", ".adoc", ".log", ".csv")
+DATA_AROUND = {"", "cat", "tee", "echo", "printf", "mkdir", "ls", "wc", "head", "tail", "grep", "cd", "true", "touch", "sort", "uniq", "diff"}
+
+
+def _heredocs(cmd: str) -> list[tuple[int, int, bool]] | None:
+    """Each here-document body as (start, end, expands): from the line after its `<<` line through its closing line.
+    `expands` is true for an unquoted delimiter, whose body the shell expands (so `$(...)` there runs). None when a
+    body is never closed."""
+    out: list[tuple[int, int, bool]] = []
+    pending: list[tuple[str, bool, bool]] = []
+    i, n, q, depth = 0, len(cmd), None, 0
+    while i < n:
+        c = cmd[i]
+        if q:
+            if c == "\\" and q == '"':
+                i += 2
+                continue
+            if c == q:
+                q = None
+            i += 1
+            continue
+        if depth:
+            depth += (c == "(") - (c == ")")
+            i += 1
+            continue
+        if c in "'\"":
+            q = c
+        elif c == "\\":
+            i += 1
+        elif c == "`":
+            j = cmd.find("`", i + 1)
+            i = n if j < 0 else j
+        elif c == "$" and cmd[i + 1:i + 2] == "(":
+            depth, i = 1, i + 1
+        elif c == "<" and cmd[i:i + 2] == "<<" and cmd[i + 2:i + 3] != "<":
+            j = i + 2
+            tabs = cmd[j:j + 1] == "-"
+            j += tabs
+            while j < n and cmd[j] in " \t":
+                j += 1
+            k = j
+            while k < n and cmd[k] not in " \t\r\n;&|<>()":
+                k += 1
+            word = cmd[j:k]
+            if not word:
+                return None
+            pending.append((re.sub(r"['\"\\]", "", word), tabs, not re.search(r"['\"\\]", word)))
+            i = k
+            continue
+        elif c == "\n" and pending:
+            pos = i + 1
+            for delim, tabs, expands in pending:
+                start = pos
+                while True:
+                    k = cmd.find("\n", pos)
+                    line = cmd[pos:k if k >= 0 else n].rstrip("\r")
+                    if (line.lstrip("\t") if tabs else line) == delim:
+                        end = k + 1 if k >= 0 else n
+                        out.append((start, end, expands))
+                        pos = end
+                        break
+                    if k < 0:
+                        return None
+                    pos = k + 1
+            pending, i = [], pos
+            continue
+        i += 1
+    return None if pending else out
+
+
+def _data_file(p: str) -> bool:
+    name = re.split(r"[\\/]", p)[-1].lower()
+    return name.endswith(DATA_SUFFIXES) and not name.startswith("cmakelists") and "$" not in p and "`" not in p
+
+
+def strip_data_heredocs(cmd: str) -> str:
+    """The command without the bodies of here-documents that are only text for documentation files.
+
+    That holds when every command around them is one of DATA_AROUND, nothing is piped, run in a subshell or with sudo,
+    every file written has a documentation suffix (or is /dev/null), and no unquoted body holds `$(...)` or backticks.
+    Otherwise the command comes back as it is."""
+    if "<<" not in cmd:
+        return cmd
+    docs = _heredocs(cmd)
+    if not docs:
+        return cmd
+    parts, last = [], 0
+    for a, b, expands in docs:
+        if expands and ("$(" in cmd[a:b] or "`" in cmd[a:b]):
+            return cmd
+        parts.append(cmd[last:a])
+        last = b
+    outer = "".join(parts) + cmd[last:]
+    if "$(" in outer or "`" in outer:
+        return cmd
+    segs = parse_shell(outer, data=False)
+    if any(s["depth"] or s["sudo"] or s["xargs"] or s["name"] not in DATA_AROUND for s in segs):
+        return cmd
+    if len({s["pipe"] for s in segs}) != len(segs):
+        return cmd
+    written = [p for s in segs for p in _written(s) if p != "/dev/null"]
+    if not written or not all(_data_file(p) for p in written):
+        return cmd
+    return outer
 
 
 def operands(args: list[str]) -> list[str]:
@@ -773,6 +883,7 @@ def _publish(s: dict) -> str | None:
 def check_shell(cmd: str, ctx: _Ctx, again: bool = True) -> tuple[list[dict], bool]:
     """Findings for one shell command, plus whether it touches the network."""
     out: list[dict] = []
+    raw, cmd = cmd, strip_data_heredocs(cmd)
     segs = parse_shell(cmd)
     cwd: str | None = ctx.ws
     network = any(s["name"] in NETWORK_CMDS for s in segs)
@@ -866,7 +977,7 @@ def check_shell(cmd: str, ctx: _Ctx, again: bool = True) -> tuple[list[dict], bo
 
     if not any(f["rule"] == "VFY-SELF-006" for f in out):
         flat = " ".join(" ".join([s["name"], *s["args"], *s["inp"], *s["out"]]) for s in segs)
-        if rx(SECRET["text"], "i").search(cmd) or rx(SECRET["text"], "i").search(flat):
+        if rx(SECRET["text"], "i").search(raw) or rx(SECRET["text"], "i").search(flat):
             out.append(_f("VFY-SELF-006", "deny", "Names Verfy's folder and its signing key or device token in one command." + SECRET_MSG))
 
     for p in dict.fromkeys(sensitive_reads):
