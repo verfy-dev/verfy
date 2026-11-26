@@ -293,7 +293,7 @@ class HookTests(unittest.TestCase):
     def test_policy_templates(self):
         from verfy.policy import TEMPLATES, load_policy
         from verfy.precheck import check
-        self.assertEqual(set(TEMPLATES), {"strict", "read-only", "ci"})
+        self.assertEqual(set(TEMPLATES), {"strict", "read-only", "ci", "allowlist"})
         for name, t in TEMPLATES.items():
             self.assertTrue(t["description"])
             load_policy(t["policy"])  # every template is a valid policy

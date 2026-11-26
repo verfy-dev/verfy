@@ -2636,7 +2636,7 @@
    "policy": {},
    "context": {},
    "expect": {
-    "verdict": "ask",
+    "verdict": "deny",
     "kind": "file_write",
     "rules": [
      "VFY-SELF-002"
@@ -3057,7 +3057,7 @@
    "policy": {},
    "context": {},
    "expect": {
-    "verdict": "ask",
+    "verdict": "deny",
     "kind": "shell",
     "rules": [
      "VFY-SELF-005"
@@ -5968,6 +5968,212 @@
     "verdict": "allow",
     "kind": "other",
     "rules": []
+   }
+  },
+  {
+   "name": "inline code writing claude settings is denied",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "python -c \"open('/home/you/.claude/settings.json','w').write('{}')\""
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "shell",
+    "rules": [
+     "VFY-SELF-005"
+    ]
+   }
+  },
+  {
+   "name": "inline code writing cursor hooks is denied",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "node -e \"require('fs').writeFileSync(process.env.HOME+'/.cursor/hooks.json','{}')\""
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "shell",
+    "rules": [
+     "VFY-SELF-005",
+     "VFY-SH-021"
+    ]
+   }
+  },
+  {
+   "name": "inline code reading claude settings asks",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "python -c \"print(open('/home/you/.claude/settings.json').read())\""
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "shell",
+    "rules": [
+     "VFY-SELF-005"
+    ]
+   }
+  },
+  {
+   "name": "inline code naming the codex config asks",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "python3 -c 'import pathlib; pathlib.Path.home().joinpath(\".codex/config.toml\").write_text(\"\")'"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "shell",
+    "rules": [
+     "VFY-SELF-005"
+    ]
+   }
+  },
+  {
+   "name": "edit taking verfy out of .mcp.json is denied",
+   "action": {
+    "tool": "Edit",
+    "arguments": {
+     "file_path": "/home/you/project/.mcp.json",
+     "old_string": "\"command\": \"verfy\", \"args\": [\"proxy\"",
+     "new_string": "\"command\": \"npx\", \"args\": ["
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "file_write",
+    "rules": [
+     "VFY-SELF-002"
+    ]
+   }
+  },
+  {
+   "name": "edit adding a server to .mcp.json asks",
+   "action": {
+    "tool": "Edit",
+    "arguments": {
+     "file_path": "/home/you/project/.mcp.json",
+     "old_string": "\"servers\": {",
+     "new_string": "\"servers\": {\"x\": {}"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "file_write",
+    "rules": [
+     "VFY-SELF-002"
+    ]
+   }
+  },
+  {
+   "name": "shell.allow: a listed program is fine",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "git status"
+    }
+   },
+   "policy": {
+    "shell": {
+     "allow": [
+      "git"
+     ]
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "shell",
+    "rules": []
+   }
+  },
+  {
+   "name": "shell.allow: a program off the list asks",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "ls -la | grep x"
+    }
+   },
+   "policy": {
+    "shell": {
+     "allow": [
+      "ls"
+     ]
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "shell",
+    "rules": [
+     "VFY-SH-042"
+    ]
+   }
+  },
+  {
+   "name": "shell.allow: a pattern matches",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "python3 a.py"
+    }
+   },
+   "policy": {
+    "shell": {
+     "allow": [
+      "py*"
+     ]
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "shell",
+    "rules": []
+   }
+  },
+  {
+   "name": "shell.allow: rules still apply to a listed program",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "rm -rf ~"
+    }
+   },
+   "policy": {
+    "shell": {
+     "allow": [
+      "rm"
+     ]
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "shell",
+    "rules": [
+     "VFY-SH-001",
+     "VFY-SH-030"
+    ]
    }
   }
  ]

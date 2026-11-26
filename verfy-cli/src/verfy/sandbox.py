@@ -21,7 +21,13 @@ import subprocess
 from pathlib import Path
 
 # read by default inside the sandbox; a command has no business with these
-CREDENTIALS = ["~/.ssh", "~/.aws", "~/.gnupg", "~/.kube", "~/.docker/config.json", "~/.netrc", "~/.npmrc", "~/.config/gcloud", "~/.verfy"]
+CREDENTIALS = ["~/.ssh", "~/.aws", "~/.gnupg", "~/.kube", "~/.docker/config.json", "~/.netrc", "~/.npmrc", "~/.config/gcloud", "~/.verfy",
+               # more keys and tokens, and the browsers' saved passwords and cookies (0.28.0)
+               "~/.azure", "~/.config/gh", "~/.git-credentials", "~/.pypirc", "~/.password-store", "~/.terraform.d", "~/.config/op",
+               "~/.mozilla", "~/.config/google-chrome", "~/.config/chromium", "~/.config/BraveSoftware", "~/.config/microsoft-edge",
+               "~/Library/Application Support/Google/Chrome", "~/Library/Application Support/Firefox",
+               "~/Library/Application Support/BraveSoftware", "~/Library/Application Support/Microsoft Edge", "~/Library/Keychains",
+               "~/Library/Cookies"]
 
 WINDOWS = os.name == "nt"
 RUNTIME_INSTALL = "npm install --global @anthropic-ai/sandbox-runtime"

@@ -15,7 +15,12 @@ can still slip past those. Two checks here need no rule for the attack itself:
    program or host appears that was never seen, a person is asked once (VFY-AD-003); then it is learned. Nothing is
    learned from a session under escalation, so an attacker cannot teach the baseline.
 
-Policy: ``"adaptive": {"escalate": "on" | "off", "novelty": "ask" | "off", "warmup": 50}``. The state, in
+3. **Packages, per machine.** ``npx``, ``bunx``, ``npm exec``, ``pnpm dlx``, ``yarn dlx``, ``uvx``, ``uv tool run`` and
+   ``pipx run`` download a package and run it in one step. The first time a package appears, a person is asked once
+   (VFY-AD-004), with no warm-up; then it is learned. A local bin of the project (``node_modules/.bin``) and a package
+   on ``packages.allow`` (``"npm:prettier"``, ``"pypi:ruff"`` or a bare name; ``*`` works) are not asked about.
+
+Policy: ``"adaptive": {"escalate": "on" | "off", "novelty": "ask" | "off", "packages": "ask" | "off", "warmup": 50}``. The state, in
 ``~/.verfy/adaptive.json``, holds program names, host names, counts and times, never arguments. A state file that
 cannot be read starts over: this layer only ever adds findings, so losing it never lets anything through that the
 rules stop.
@@ -30,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from .fileio import FileLock, atomic_write
-from ._util import VERDICT_RANK
+from ._util import VERDICT_RANK, name_match
 from .precheck import NETWORK_CMDS, _url_parts, _urls, parse_shell
 
 VERSION = 1
@@ -56,14 +61,17 @@ def settings(policy: dict) -> dict:
     a = policy.get("adaptive") if isinstance(policy.get("adaptive"), dict) else {}
     escalate = a.get("escalate", "on")
     novelty = a.get("novelty", "ask")
+    packages = a.get("packages", "ask")
     warmup = a.get("warmup", 50)
     if escalate not in ("on", "off"):
         raise ValueError("adaptive.escalate must be on or off")
     if novelty not in ("ask", "off"):
         raise ValueError("adaptive.novelty must be ask or off")
+    if packages not in ("ask", "off"):
+        raise ValueError("adaptive.packages must be ask or off")
     if isinstance(warmup, bool) or not isinstance(warmup, int) or not 0 <= warmup <= 100000:
         raise ValueError("adaptive.warmup must be a whole number from 0 to 100000")
-    return {"escalate": escalate, "novelty": novelty, "warmup": warmup}
+    return {"escalate": escalate, "novelty": novelty, "packages": packages, "warmup": warmup}
 
 
 def _f(rule: str, verdict: str, message: str) -> dict:
@@ -101,6 +109,101 @@ def features(action: dict, decision: dict) -> list[str]:
             if parts and parts[0]:
                 out.append("host:" + parts[0].lower())
     return list(dict.fromkeys(out))
+
+
+NPX_VALUE_FLAGS = {"-p", "--package", "-c", "--call", "-w", "--workspace", "--cache", "--registry", "--userconfig"}
+UVX_VALUE_FLAGS = {"--from", "--with", "--with-editable", "--with-requirements", "--python", "-p", "--index", "--index-url",
+                   "--extra-index-url", "--default-index", "-i", "--find-links", "-f", "--constraint", "-c", "--override",
+                   "--spec", "--pip-args", "--directory", "--project", "--config-file", "--cache-dir"}
+
+
+def _spec_args(args: list[str], value_flags: set[str], spec_flags: tuple[str, ...]) -> tuple[list[str], str | None]:
+    """(packages named by a flag, the first plain argument) after the flags of a package runner."""
+    named: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            return named, args[i + 1] if i + 1 < len(args) else None
+        if a.startswith("--") and "=" in a:
+            flag, value = a.split("=", 1)
+            if flag in spec_flags:
+                named.append(value)
+            i += 1
+            continue
+        if a in value_flags:
+            if a in spec_flags and i + 1 < len(args):
+                named.append(args[i + 1])
+            i += 2
+            continue
+        if a.startswith("-"):
+            i += 1
+            continue
+        return named, a
+    return named, None
+
+
+def _npm_name(spec: str) -> str:
+    if spec.startswith((".", "/", "~")) or "://" in spec or spec.startswith(("git+", "github:", "file:")):
+        return spec
+    spec = spec.removeprefix("npm:")
+    m = re.match(r"^(@[^/@\s]+/[^@\s]+)", spec) or re.match(r"^([^@\s]+)", spec)
+    return (m.group(1) if m else spec).lower()
+
+
+def _pypi_name(spec: str) -> str:
+    if spec.startswith((".", "/", "~")) or "://" in spec or spec.startswith("git+"):
+        return spec
+    return re.split(r"[\[<>=!~@ ;]", spec, maxsplit=1)[0].lower().replace("_", "-")
+
+
+def packages_run(cmd: str) -> list[tuple[str, str, bool]]:
+    """Packages a command downloads and runs: (registry, name, could be a local bin of the project)."""
+    out: list[tuple[str, str, bool]] = []
+    for s in parse_shell(cmd):
+        base = re.sub(r"\.(?:exe|cmd|bat|ps1)$", "", str(s.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1].lower())
+        a = [str(x) for x in s.get("args", [])]
+        if base in ("npx", "bunx", "pnpx") or (base == "npm" and a[:1] in (["exec"], ["x"])) or (base == "bun" and a[:1] == ["x"]):
+            rest = a[1:] if base in ("npm", "bun") else a
+            named, first = _spec_args(rest, NPX_VALUE_FLAGS, ("-p", "--package"))
+            local = not named and base != "pnpx"
+            out += [("npm", _npm_name(x), False) for x in named] + ([("npm", _npm_name(first), local)] if first and not named else [])
+        elif base in ("pnpm", "yarn") and a[:1] == ["dlx"]:
+            named, first = _spec_args(a[1:], NPX_VALUE_FLAGS, ("-p", "--package"))
+            out += [("npm", _npm_name(x), False) for x in named] + ([("npm", _npm_name(first), False)] if first and not named else [])
+        elif base == "uvx" or (base == "uv" and a[:2] == ["tool", "run"]):
+            named, first = _spec_args(a[2:] if base == "uv" else a, UVX_VALUE_FLAGS, ("--from",))
+            out += [("pypi", _pypi_name(x), False) for x in named] + ([("pypi", _pypi_name(first), False)] if first and not named else [])
+        elif base == "pipx" and a[:1] == ["run"]:
+            named, first = _spec_args(a[1:], UVX_VALUE_FLAGS, ("--spec",))
+            out += [("pypi", _pypi_name(x), False) for x in named] + ([("pypi", _pypi_name(first), False)] if first and not named else [])
+    return [x for x in dict.fromkeys(out) if x[1]]
+
+
+def _local_bin(cwd: str | None, name: str) -> bool:
+    if not cwd:
+        return False
+    root = Path(cwd)
+    return (root / "node_modules" / ".bin" / name.rsplit("/", 1)[-1]).exists() or (root / "node_modules" / name / "package.json").exists()
+
+
+def package_features(action: dict, decision: dict, policy: dict, cwd: str | None = None) -> list[str]:
+    """``pkg:<registry>:<name>`` for each package this action downloads and runs, leaving out a local bin of the project
+    and what ``packages.allow`` lists."""
+    if decision.get("kind") != "shell":
+        return []
+    cmd = _shell_text(action)
+    if not cmd:
+        return []
+    allow = [str(x) for x in ((policy.get("packages") or {}).get("allow") or []) if isinstance(x, str)]
+    out = []
+    for registry, name, maybe_local in packages_run(cmd):
+        if maybe_local and _local_bin(cwd, name):
+            continue
+        if any(name_match(p.lower(), f"{registry}:{name}") or name_match(p.lower(), name) for p in allow):
+            continue
+        out.append(f"pkg:{registry}:{name}")
+    return out
 
 
 def risky(action: dict, decision: dict) -> bool:
@@ -181,13 +284,14 @@ def _verdict(findings: list[dict]) -> str:
     return max((f["verdict"] for f in findings), key=lambda v: VERDICT_RANK[v], default="allow")
 
 
-def apply(home: Path | None, session: str, checked: list[tuple[dict, dict]], policy: dict, now: float | None = None) -> list[tuple[dict, dict]]:
+def apply(home: Path | None, session: str, checked: list[tuple[dict, dict]], policy: dict, now: float | None = None,
+          cwd: str | None = None) -> list[tuple[dict, dict]]:
     """Add escalation and novelty findings to the rules' decisions for one tool call (several actions for a patch), then
     count the call against its session and learn from it. Returns the decisions, changed in place."""
     if home is None or not checked:
         return checked
     cfg = settings(policy)
-    if cfg["escalate"] == "off" and cfg["novelty"] == "off":
+    if cfg["escalate"] == "off" and cfg["novelty"] == "off" and cfg["packages"] == "off":
         return checked
     now = time.time() if now is None else now
 
@@ -211,6 +315,12 @@ def apply(home: Path | None, session: str, checked: list[tuple[dict, dict]], pol
                     names = ", ".join(f"`{k.split(':', 1)[1]}`" for k in new[:3])
                     what = "program" if all(k.startswith("prog:") for k in new) else ("host" if all(k.startswith("host:") for k in new) else "program or host")
                     added.append(_f("VFY-AD-003", "ask", f"This machine's agents have never used the {what} {names} before; Verfy asks the first time."))
+            pkgs = package_features(action, decision, policy, cwd) if cfg["packages"] == "ask" else []
+            fresh = [k for k in pkgs if k not in data["features"]]
+            if fresh and decision.get("verdict") != "deny":
+                names = ", ".join(f"`{k.split(':', 2)[2]}` from {'npm' if k.split(':')[1] == 'npm' else 'PyPI'}" for k in fresh[:3])
+                added.append(_f("VFY-AD-004", "ask", f"Downloads and runs {names}, which this machine's agents have not run before; "
+                                                     "Verfy asks the first time. List packages you trust under packages.allow."))
             if added:
                 decision["findings"] = sorted([*decision.get("findings", []), *added], key=lambda f: -VERDICT_RANK[f["verdict"]])
                 decision["verdict"] = _verdict(decision["findings"])
@@ -223,7 +333,7 @@ def apply(home: Path | None, session: str, checked: list[tuple[dict, dict]], pol
         if score < ASK_AT and p == 0 and all(d.get("verdict") != "deny" for _, d in checked):
             data["learned"] = int(data.get("learned", 0)) + 1
             for action, decision in checked:
-                for k in features(action, decision):
+                for k in features(action, decision) + (package_features(action, decision, policy, cwd) if cfg["packages"] == "ask" else []):
                     e = data["features"].setdefault(k, {"first": round(now), "count": 0})
                     e["count"] = int(e.get("count", 0)) + 1
                     e["last"] = round(now)
@@ -244,12 +354,14 @@ def status(home: Path, policy: dict, now: float | None = None) -> dict:
         "warm": int(data.get("learned", 0)) >= cfg["warmup"],
         "programs": sorted(k[5:] for k in data["features"] if k.startswith("prog:")),
         "hosts": sorted(k[5:] for k in data["features"] if k.startswith("host:")),
+        "packages": sorted(k[4:] for k in data["features"] if k.startswith("pkg:")),
+        "packages_mode": cfg["packages"],
         "escalated": {sid: s for sid, s in sorted(sessions.items(), key=lambda x: -x[1]) if s >= ASK_AT},
     }
 
 
 def forget(home: Path, what: str) -> int:
-    """Remove a learned program (``prog:NAME``), host (``host:NAME``) or session score (``session:ID``); ``all``
+    """Remove a learned program (``prog:NAME``), host (``host:NAME``), package (``pkg:npm:NAME``) or session score (``session:ID``); ``all``
     clears everything. Returns how many entries went."""
     def step(data: dict) -> int:
         if what == "all":
