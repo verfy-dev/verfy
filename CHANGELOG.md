@@ -2,6 +2,15 @@
 
 What changed in the Verfy CLI (`pip install verfy`) and the website. Newest first. Every CLI version is on [PyPI](https://pypi.org/project/verfy/#history) and as standalone builds on the [releases page](https://github.com/verfy-dev/verfy-releases/releases).
 
+## 0.27.0 (2026-11-26)
+
+- **Safer defaults.** Two protections that had to be switched on are now on:
+  - **After the agent reads outside text** (a web page, a search result, an MCP tool's answer), what can do harm waits for a person in agents with hooks: `git push`, uploading a local file, reading a key file, writing outside the project, messages, payments and deletes (VFY-SESSION-001). The new default value `"hooks"` leaves the MCP gateway alone, where nobody may be there to answer; `"ask"` covers it too, as before. A plain request to a site no longer counts unless `session.include_network` is true, so reading more of the web after a search goes on without a question. An upload of a local file now counts as harmful here even without `include_network`.
+  - **A message waits for a person** (VFY-MSG-001): a tool that sends an email or a chat or channel post, with a recipient and a body, gets `ask`. `"messages": {"send": "allow" | "deny"}` changes it; `tools.trust` lets one tool through.
+- **`verfy policy status`** prints what the policy in force turns on and off, in words, with the setting behind each line. `verfy setup` and `verfy init` print the same list.
+- VFY-SESSION-001 no longer counts toward escalation: now that it is on by default, a push after reading the web is ordinary work, not a sign of an attack.
+- The policy hash changes with the new default, so the receipt test vectors were made again.
+
 ## 0.26.6 (2026-11-23)
 
 - **Text written into a documentation file is no longer read as commands.** A command like `cat >> notes.md <<'EOF' ... EOF` was blocked when the text mentioned a dangerous command (for example a recursive delete of the home folder), because every line of a here-document was checked as a command. Now a here-document is read as text when it only goes into documentation files (`.md`, `.txt`, `.rst`, `.adoc`, `.log`, `.csv`) through `cat` or `tee`, nothing around it is piped, run with sudo or substituted, and an unquoted body holds no `$(...)` or backticks. Anything else is checked line by line as before: a body piped into a shell or fed to one, written to a script or a shell profile, or run later in the same command. `tests/test_heredoc_data.py` covers both sides.

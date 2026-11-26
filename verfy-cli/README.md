@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.26.6
+    rev: cli-v0.27.0
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.26.6" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.27.0" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -522,13 +522,23 @@ policy can turn them on or lower the warm-up, never switch them off. The format 
 
 ## After the agent reads outside text
 
-A web page or a tool's answer can carry instructions for the agent. This setting makes what can do harm afterwards wait for a person:
+A web page or a tool's answer can carry instructions for the agent. Once a session has read outside text (a network call, `WebSearch`, or any MCP tool you have not listed in `tools.trust`), what can do harm waits for a person, rule VFY-SESSION-001: `git push`, uploading a local file, reading a key file, writing outside the project, messages, payments and deletes. Editing project files, running tests and reading more of the web go on. No model reads the text: Verfy only notices the order of events. Each decision goes into a receipt with that rule.
 
 ```json
-{ "session": { "after_outside_text": "ask" } }
+{ "session": { "after_outside_text": "hooks", "include_network": false } }
 ```
 
-Once a session has read outside text (a network call, `WebSearch`, or any MCP tool you have not listed in `tools.trust`), these get `ask` (or `deny`), rule VFY-SESSION-001: requests to sites not on `network.allow`, `git push`, reading a key file, writing outside the project, messages, payments and deletes. Each decision goes into a receipt with that rule. Editing project files and running tests go on. No model reads the text: Verfy only notices the order of events. It is off by default; the `strict` template sets `deny`.
+- `"hooks"` (the default since 0.27.0): on in agents with hooks, where the agent puts the question to you. The MCP gateway leaves it alone, because nobody may be there to answer (`on_ask` is `deny` by default).
+- `"ask"`: also in the MCP gateway, where a server's answer counts as outside text. `"deny"` refuses instead of asking; the `strict` template sets it. `"off"` turns it off.
+- `"include_network": true` makes every request to a site not on `network.allow` wait too, not only uploads and pushes.
+
+## Messages wait for a person
+
+A tool that sends a message (an email, a chat or channel post, with a recipient and a body) gets `ask`, rule VFY-MSG-001, since 0.27.0: it goes out under your name and cannot be taken back. Change it with `{ "messages": { "send": "allow" } }` (or `"deny"`), or list a tool you trust under `tools.trust`. In the MCP gateway, `ask` follows `on_ask`: with the default `deny` the message is refused and the reason says why; `"on_ask": "elicit"` asks you in clients that support it, `"team"` asks your team in Verfy Cloud.
+
+## What is on here
+
+`verfy policy status` prints, in words, what the policy in force turns on and off, and the setting behind each line. `verfy setup` and `verfy init` print the same list at the end.
 
 ## Policy
 

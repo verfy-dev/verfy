@@ -48,8 +48,13 @@ def load_policy(source: str | os.PathLike | dict | None = None, *, workspace: st
         raise ValueError("approval_timeout must be a whole number of seconds from 10 to 900")
     if pol.get("fail_mode") not in ("ask", "deny"):
         raise ValueError("fail_mode must be ask or deny (Verfy never fails open)")
-    if (pol.get("session") or {}).get("after_outside_text") not in ("off", "ask", "deny"):
-        raise ValueError("session.after_outside_text must be off, ask or deny")
+    if (pol.get("session") or {}).get("after_outside_text") not in ("off", "hooks", "ask", "deny"):
+        raise ValueError("session.after_outside_text must be off, hooks, ask or deny")
+    if (pol.get("session") or {}).get("include_network", False) not in (True, False):
+        raise ValueError("session.include_network must be true or false")
+    # read with the default "ask" where it is used, and left out of the default policy (see prompt_secrets below)
+    if not isinstance(pol.get("messages", {}), dict) or (pol.get("messages") or {}).get("send", "ask") not in ("ask", "deny", "allow"):
+        raise ValueError("messages.send must be ask, deny or allow")
     if (pol.get("lock") or {}).get("on_new") not in ("ask", "deny", "allow"):
         raise ValueError("lock.on_new must be ask, deny or allow")
     # read with the default "block" where it is used; left out of the policy so its hash, and receipts, stay the same
@@ -69,7 +74,8 @@ def load_policy(source: str | os.PathLike | dict | None = None, *, workspace: st
     return pol
 
 
-STRICTNESS = {"off": 0, "allow": 0, "ask": 1, "deny": 2, "block": 2}
+# "hooks" asks where an agent can put the question to a person (its hooks) and leaves the MCP gateway alone
+STRICTNESS = {"off": 0, "allow": 0, "hooks": 0.5, "ask": 1, "deny": 2, "block": 2}
 
 
 def _stricter(a: Any, b: Any) -> Any:
@@ -104,6 +110,11 @@ def tighten(base: dict, project: Any) -> dict:
     if project.get("prompt_secrets") == "block":
         out["prompt_secrets"] = "block"
     out["session"]["after_outside_text"] = _stricter(out["session"].get("after_outside_text", "off"), part("session").get("after_outside_text"))
+    if part("session").get("include_network") is True:
+        out["session"]["include_network"] = True
+    sends = part("messages").get("send")
+    if sends in ("ask", "deny"):
+        out["messages"] = {**(out.get("messages") or {}), "send": _stricter((out.get("messages") or {}).get("send", "ask"), sends)}
     if project.get("on_ask") == "deny":
         out["on_ask"] = "deny"
     adaptive = part("adaptive")

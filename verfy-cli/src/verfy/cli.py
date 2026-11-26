@@ -187,6 +187,7 @@ def cmd_init(args) -> int:
     how = "checked once a day, installed in the background" if mode == "auto" else "only when you run `verfy update`"
     print(f"Updates       {mode}: {how} (change with `verfy update --auto {'off' if mode == 'auto' else 'on'}`)")
     _init_mcp_summary()
+    _print_protection()
     hook = args.hook
     agents = agentlib.found(Path.home())
     if hook is None and agents and _interactive():
@@ -283,6 +284,28 @@ def cmd_policy_templates(args) -> int:
 
 def cmd_policy_show(args) -> int:
     print(json.dumps(TEMPLATES[args.name]["policy"], indent=2))
+    return 0
+
+
+def _policy_source() -> str:
+    team, user = home_file("team") / "policy.json", home_file("policy.json")
+    base = "your team's policy" if real_file(team) else (_short(user) if real_file(user) else "the defaults")
+    return base + (" and ./verfy.policy.json" if real_file(Path("verfy.policy.json")) else "")
+
+
+def _print_protection() -> None:
+    from . import protection
+    try:
+        pol = resolve_policy()
+    except (OSError, ValueError) as e:
+        print(f"\nYour policy could not be read, so Verfy denies what it would ask about: {e}")
+        return
+    print("\n" + "\n".join(protection.lines(pol, _policy_source())))
+
+
+def cmd_policy_status(args) -> int:
+    from . import protection
+    print("\n".join(protection.lines(get_policy(args), args.policy or _policy_source())))
     return 0
 
 
@@ -2129,8 +2152,10 @@ def _setup_finish(args, items: list[dict]) -> int:
         print("\n" + (f"Nothing changed yet. Run `{again}` to do all of this; a backup of every changed file is kept."
                       if todo else (f"{len(broken)} file(s) above could not be read; fix them and run this again." if broken
                                     else "Every agent found here is already set up.")))
+        _print_protection()
         return 1 if any(i["state"] == "error" for i in items) else 0
     _print_setup_done(agentlib.apply(items))
+    _print_protection()
     return 1 if any(i["state"] == "error" for i in items) else 0
 
 
@@ -2529,6 +2554,9 @@ def build_parser() -> argparse.ArgumentParser:
     x.add_argument("--project", action="store_true", help="write ./verfy.policy.json instead")
     x.add_argument("--force", action="store_true", help="replace an existing policy (a backup is kept)")
     x.set_defaults(fn=cmd_policy_use)
+    x = pol.add_parser("status", help="what is on and what is off in the policy in force here")
+    x.add_argument("--policy", help="a policy file to read instead of the one in force")
+    x.set_defaults(fn=cmd_policy_status)
     x = pol.add_parser("trust", help="let ./verfy.policy.json loosen Verfy too; without this it can only make Verfy stricter")
     x.add_argument("file", nargs="?", default="verfy.policy.json")
     x.set_defaults(fn=cmd_policy_trust)

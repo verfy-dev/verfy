@@ -118,7 +118,7 @@
   "on_new": "ask"
  },
  "session": {
-  "after_outside_text": "off",
+  "after_outside_text": "hooks",
   "sources": [
    "WebSearch"
   ]
