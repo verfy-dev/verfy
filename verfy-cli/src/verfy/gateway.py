@@ -42,8 +42,7 @@ from . import sandbox as sandboxes
 from .scanner import scan, unsafe_tools, prompt_tool, text_findings
 
 
-def verfy_home() -> Path:
-    return Path(os.environ.get("VERFY_HOME") or Path.home() / ".verfy")
+from ._util import verfy_home  # noqa: E402,F401 (kept here for the names other modules import)
 
 
 def spent_today(receipts: list[dict], server: str | None = None) -> float:

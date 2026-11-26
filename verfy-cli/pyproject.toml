@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "verfy"
-version = "0.28.0"
+version = "0.28.1"
 description = "Verfy: guard coding-agent tool calls, scan and lock MCP tools, and sign a verifiable receipt for every action."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,7 +39,7 @@ openai-agents = ["openai-agents>=0.2"]
 crewai = ["crewai>=1.15"]
 
 [project.scripts]
-verfy = "verfy.cli:main"
+verfy = "verfy.entry:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

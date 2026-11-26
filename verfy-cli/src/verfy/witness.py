@@ -17,7 +17,6 @@ https://verfy.dev/.well-known/verfy-witness.json; its id is ``vw_`` and the firs
 from __future__ import annotations
 
 import json
-import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
@@ -58,6 +57,7 @@ def fetch_keys(url: str = DEFAULT_KEY_URL) -> dict[str, bytes]:
     u = urlparse(url)
     if u.scheme != "https" and u.hostname not in ("localhost", "127.0.0.1", "::1"):
         raise ValueError("the witness key URL must use https")
+    import urllib.request
     req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "verfy-cli"})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:  # noqa: S310 - scheme checked above
         data = json.loads(resp.read(256 * 1024) or b"null")

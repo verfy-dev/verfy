@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -17,6 +18,11 @@ PATTERNS: dict = json.loads((Path(__file__).parent / "data" / "patterns.json").r
 
 SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 VERDICT_RANK = {"deny": 2, "ask": 1, "allow": 0}
+
+
+def verfy_home() -> Path:
+    """Where Verfy keeps its key, receipts and policy: $VERFY_HOME, or ~/.verfy."""
+    return Path(os.environ.get("VERFY_HOME") or Path.home() / ".verfy")
 
 
 def real_file(p: Path) -> bool:
