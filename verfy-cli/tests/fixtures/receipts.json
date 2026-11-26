@@ -20,7 +20,7 @@
    "decision": {
     "verdict": "allow",
     "rules": [],
-    "policy_sha256": "sha256:c431f52560bd80a878ebe10accb6ea07746beeea3e47b07d3a926b8c4c76ba1a"
+    "policy_sha256": "sha256:a4382d8511ff37103eff8482b912dae848094a64fdbc9572c6114c677ed346c9"
    },
    "outcome": {
     "status": "ok",
@@ -28,13 +28,13 @@
    },
    "tool_sha256": null,
    "kid": "atl_65b60673d6ed884b",
-   "sig": "sD5jn3-iODe-WyFMNRcnpeqx0fvr5lucbACGj631S4N5iLYEK7bes8TP1hvB_sF9535Ya4lsTGJXsKjZ-becDA"
+   "sig": "pa-3do4aMp6E80IZaR0_PGiMlLYfyanIbwtDXVyXInMdqSbd89saWcksTOZIP8Av6iKDxRFBSRY58HbCoMl4Cw"
   },
   {
    "v": "verfy.receipt/1",
    "id": "rcpt_vector0001",
    "seq": 1,
-   "prev": "sha256:afcfffe2a510a5c7d6d44859c4b06ace2cd36c9074d74de1ab73426115c12bb8",
+   "prev": "sha256:503326afcc7034f0e0871f47ca7c3ab3d15927c0b56ffd13f95ab632a43fd4c8",
    "issued_at": "2026-10-11T09:00:01.000Z",
    "agent": "vector-agent",
    "session": "ses_vectors",
@@ -50,7 +50,7 @@
      "VFY-SH-001",
      "VFY-SH-030"
     ],
-    "policy_sha256": "sha256:c431f52560bd80a878ebe10accb6ea07746beeea3e47b07d3a926b8c4c76ba1a"
+    "policy_sha256": "sha256:a4382d8511ff37103eff8482b912dae848094a64fdbc9572c6114c677ed346c9"
    },
    "outcome": {
     "status": "blocked",
@@ -58,13 +58,13 @@
    },
    "tool_sha256": null,
    "kid": "atl_65b60673d6ed884b",
-   "sig": "Xg6JEFFQLbcX8VmMtWp_5KeNPWJjCYANk1wBCZju7P6cyh3p6l3T8YZkPcwQWXI6BkqAEtYVDHJpHwWKE6SpDw"
+   "sig": "D4me5QSr_6Tg2u0Pskcbw94WxWIKDsi2AjvNLyKtleA3o0N3jCwFf6p-oX_C1hqO2FH17jooQytX32ox48JsBw"
   },
   {
    "v": "verfy.receipt/1",
    "id": "rcpt_vector0002",
    "seq": 2,
-   "prev": "sha256:99d08b9d82adf642e0555bd9f8a2029e075c6b828bd13a92a3b1af307d471df3",
+   "prev": "sha256:54a8faad956902643330ff0d4f0f07c6f91d78271f5228c0ada54ab8a54760b9",
    "issued_at": "2026-10-11T09:00:02.000Z",
    "agent": "vector-agent",
    "session": "ses_vectors",
@@ -77,7 +77,7 @@
    "decision": {
     "verdict": "allow",
     "rules": [],
-    "policy_sha256": "sha256:c431f52560bd80a878ebe10accb6ea07746beeea3e47b07d3a926b8c4c76ba1a"
+    "policy_sha256": "sha256:a4382d8511ff37103eff8482b912dae848094a64fdbc9572c6114c677ed346c9"
    },
    "outcome": {
     "status": "asked",
@@ -85,13 +85,13 @@
    },
    "tool_sha256": null,
    "kid": "atl_65b60673d6ed884b",
-   "sig": "VijLE3FBaA5pnD9yEyQ-57QLMYyhvsIrMYBetWYdMrx5hWs4Lruy1bx786ReQm_u8nob_XK5tCbLnVmxbWPGBw"
+   "sig": "XfjDsG7juwXSiyPyf-YKKGL5IqHJ1JA_LbJxXvTVOeSqmT3KOCddJlE93ftXsMiS_efMJUynHJUMp17gqKqcAw"
   },
   {
    "v": "verfy.receipt/1",
    "id": "rcpt_vector0003",
    "seq": 3,
-   "prev": "sha256:bca27cba09d220ca1e91fa5b526aaa1e425bb92aae6f73bdffc4512d7683b203",
+   "prev": "sha256:3750f9d2e05ef8fff932115a3fd3d4c1f0c668f1215cc28700e8ce58b7285d3e",
    "issued_at": "2026-10-11T09:00:03.000Z",
    "agent": "vector-agent",
    "session": "ses_vectors",
@@ -106,7 +106,7 @@
     "rules": [
      "VFY-FS-003"
     ],
-    "policy_sha256": "sha256:c431f52560bd80a878ebe10accb6ea07746beeea3e47b07d3a926b8c4c76ba1a"
+    "policy_sha256": "sha256:a4382d8511ff37103eff8482b912dae848094a64fdbc9572c6114c677ed346c9"
    },
    "outcome": {
     "status": "asked",
@@ -114,13 +114,13 @@
    },
    "tool_sha256": null,
    "kid": "atl_65b60673d6ed884b",
-   "sig": "u1qSZGtKGG4aTReiub8SKIt1cm4_v6EQTqldkgOWqluEdMnuq5sVJMY98KKF3slE6_jkn1pSIA-iUOW90pHpBw"
+   "sig": "q1jxmBIuaryzpLYHsP7KBcPMSSGwkBVY19D3uuTvFfFwqvfNkxyZGXg5WS4sZFtOKPMZbPOyy8qCJhyvf0nBDw"
   }
  ],
  "hashes": [
-  "sha256:afcfffe2a510a5c7d6d44859c4b06ace2cd36c9074d74de1ab73426115c12bb8",
-  "sha256:99d08b9d82adf642e0555bd9f8a2029e075c6b828bd13a92a3b1af307d471df3",
-  "sha256:bca27cba09d220ca1e91fa5b526aaa1e425bb92aae6f73bdffc4512d7683b203",
-  "sha256:0452eb177f4f09cb9cb50d9dd9ee9d2888fcffa770d9da86293779d7b3b979a4"
+  "sha256:503326afcc7034f0e0871f47ca7c3ab3d15927c0b56ffd13f95ab632a43fd4c8",
+  "sha256:54a8faad956902643330ff0d4f0f07c6f91d78271f5228c0ada54ab8a54760b9",
+  "sha256:3750f9d2e05ef8fff932115a3fd3d4c1f0c668f1215cc28700e8ce58b7285d3e",
+  "sha256:7dc673059ac3a30448a65f86fa3f0a65871daef5b39318f16f92006677607250"
  ]
 }

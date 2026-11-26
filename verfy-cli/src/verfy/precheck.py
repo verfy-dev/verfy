@@ -1163,7 +1163,7 @@ def check(action: dict, policy: dict | None = None, context: dict | None = None)
             cmd = _shell_text(args)
             fs, network = check_shell(cmd, ctx)
             out.extend(fs)
-            touchy = _pushes(cmd) or any(f["rule"] in ("VFY-SH-007", "VFY-SH-008") for f in fs)
+            touchy = _pushes(cmd) or any(f["rule"] in ("VFY-SH-007", "VFY-SH-008", "VFY-SH-015") for f in fs)
         elif kind == "sql":
             sql = next(args[k] for k in args if str(k).lower() in PATTERNS["sql_keys"] and isinstance(args[k], str))
             for rule, verdict, pat, flags, msg in PATTERNS["sql_patterns"]:
@@ -1227,9 +1227,19 @@ def check(action: dict, policy: dict | None = None, context: dict | None = None)
                     out.append(_f("VFY-SEC-001", "deny", f"Would send a {s['label']} out of this computer (in `{path_ or 'arguments'}`)."))
                 else:
                     out.append(_f("VFY-SEC-001", "ask", f"Contains a {s['label']} (in `{path_ or 'arguments'}`)."))
-        after = (pol.get("session") or {}).get("after_outside_text", "off")
+        if kind == "message":
+            # a message goes out under the user's name and cannot be taken back; read with its default where used
+            sends = (pol.get("messages") or {}).get("send", "ask")
+            if sends in ("ask", "deny"):
+                out.append(_f("VFY-MSG-001", sends, f"Sends a message with `{tool}`, which goes out under your name, so a person approves it first."))
+        session_pol = pol.get("session") or {}
+        after = session_pol.get("after_outside_text", "off")
+        if after == "hooks":  # only a hook passes outside text in this mode, and there the agent asks the person
+            after = "ask"
+        # plain requests to sites count only when asked for, so reading the web after a search does not ask every time
+        wide = session_pol.get("include_network") is True
         listed_site = kind == "network" and bool(urls) and all(_on_allow_list(u, ctx) for u in urls)
-        if context.get("untrusted") and after in ("ask", "deny") and (touchy or (network and not listed_site) or kind in ("message", "payment", "file_delete")):
+        if context.get("untrusted") and after in ("ask", "deny") and (touchy or (wide and network and not listed_site) or kind in ("message", "payment", "file_delete")):
             out.append(_f("VFY-SESSION-001", after, f"This session read outside text ({context['untrusted']}), which can carry instructions, so a person has to approve this."))
 
     for r in pol.get("rules", []):

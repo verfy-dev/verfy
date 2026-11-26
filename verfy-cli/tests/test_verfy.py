@@ -421,12 +421,22 @@ class GatewaySessions(GatewayTests):
         listing = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
         read = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "read_file", "arguments": {"path": "notes.txt"}}}
         fetch = {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "fetch_url", "arguments": {"url": "https://example.org"}}}
-        policy = {"session": {"after_outside_text": "ask"}, "lock": {"on_new": "allow"}}
+        policy = {"session": {"after_outside_text": "ask", "include_network": True}, "lock": {"on_new": "allow"}}
         got = self.run_gateway([init, listing, read, fetch], policy=policy)
         replies = got[0] if isinstance(got, tuple) else got
         self.assertFalse(replies[3]["result"].get("isError"))
         self.assertTrue(replies[4]["result"]["isError"])
         self.assertIn("VFY-SESSION-001", replies[4]["result"]["content"][0]["text"])
+
+    def test_by_default_the_gateway_leaves_it_alone(self):
+        """The default "hooks" asks where an agent puts the question to a person; a gateway may have nobody to ask."""
+        init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}}
+        listing = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
+        read = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "read_file", "arguments": {"path": "notes.txt"}}}
+        fetch = {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "fetch_url", "arguments": {"url": "https://example.org"}}}
+        got = self.run_gateway([init, listing, read, fetch], policy={"lock": {"on_new": "allow"}})
+        replies = got[0] if isinstance(got, tuple) else got
+        self.assertFalse(replies[4]["result"].get("isError"))
 
 
 class SaltedHashes(unittest.TestCase):

@@ -205,6 +205,9 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     if (typeof wait !== "number" || !Number.isInteger(wait) || wait < 10 || wait > 900) throw new Error("approval_timeout must be a whole number of seconds from 10 to 900");
     if (["ask", "deny"].indexOf(pol.fail_mode) < 0) throw new Error("fail_mode must be ask or deny (Verfy never fails open)");
     if (["ask", "deny", "allow"].indexOf((pol.lock || {}).on_new) < 0) throw new Error("lock.on_new must be ask, deny or allow");
+    var inc = (pol.session || {}).include_network;
+    if (inc !== undefined && inc !== true && inc !== false) throw new Error("session.include_network must be true or false");
+    if (pol.messages !== undefined && (!isObj(pol.messages) || ["ask", "deny", "allow"].indexOf(pol.messages.send === undefined ? "ask" : pol.messages.send) < 0)) throw new Error("messages.send must be ask, deny or allow");
     return pol;
   }
 
@@ -1217,7 +1220,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
         var cmdText = shellText(args);
         var res = checkShell(cmdText, ctx);
         out = out.concat(res[0]); network = res[1];
-        touchy = pushes(cmdText) || res[0].some(function (f) { return f.rule === "VFY-SH-007" || f.rule === "VFY-SH-008"; });
+        touchy = pushes(cmdText) || res[0].some(function (f) { return f.rule === "VFY-SH-007" || f.rule === "VFY-SH-008" || f.rule === "VFY-SH-015"; });
       } else if (kind === "sql") {
         var qk = argKeys.filter(function (k) { return has(PATTERNS.sql_keys, k.toLowerCase()) && typeof args[k] === "string"; })[0];
         PATTERNS.sql_patterns.forEach(function (r) { if (rx(r[2], r[3]).test(sqlText(args[qk]))) out.push(F(r[0], r[1], r[4])); });
@@ -1274,9 +1277,18 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
           else out.push(F("VFY-SEC-001", "ask", "Contains a " + s.label + " (in `" + (pt[0] || "arguments") + "`)."));
         });
       });
-      var after = (pol.session || {}).after_outside_text || "off";
+      if (kind === "message") {
+        // a message goes out under the user's name and cannot be taken back; read with its default where used
+        var sends = (pol.messages || {}).send || "ask";
+        if (sends === "ask" || sends === "deny") out.push(F("VFY-MSG-001", sends, "Sends a message with `" + tool + "`, which goes out under your name, so a person approves it first."));
+      }
+      var sessionPol = pol.session || {};
+      var after = sessionPol.after_outside_text || "off";
+      if (after === "hooks") after = "ask"; // only a hook passes outside text in this mode, and there the agent asks the person
+      // plain requests to sites count only when asked for, so reading the web after a search does not ask every time
+      var wide = sessionPol.include_network === true;
       var listedSite = kind === "network" && urls.length > 0 && urls.every(function (u) { return onAllowList(u, ctx); });
-      if (context.untrusted && (after === "ask" || after === "deny") && (touchy || (network && !listedSite) || has(["message", "payment", "file_delete"], kind))) {
+      if (context.untrusted && (after === "ask" || after === "deny") && (touchy || (wide && network && !listedSite) || has(["message", "payment", "file_delete"], kind))) {
         out.push(F("VFY-SESSION-001", after, "This session read outside text (" + context.untrusted + "), which can carry instructions, so a person has to approve this."));
       }
     }

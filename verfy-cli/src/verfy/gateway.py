@@ -231,7 +231,9 @@ class Gateway:
         adaptive.apply(self.ledger.path.parent, self.session, [(action, decision)], self.policy)
         v = decision["verdict"]
         # what a server answers is outside text, unless the policy trusts that tool
-        if v != "deny" and not self.outside and not sessions.trusted(self.policy, f"{self.server}/{name}", name):
+        # with the default "hooks" the gateway leaves this alone: nobody may be there to answer its questions
+        watched = (self.policy.get("session") or {}).get("after_outside_text") in ("ask", "deny")
+        if watched and v != "deny" and not self.outside and not sessions.trusted(self.policy, f"{self.server}/{name}", name):
             self.outside = f"{self.server}/{name}"
         if v == "allow":
             self._forward(msg, action, decision)

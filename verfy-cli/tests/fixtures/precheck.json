@@ -3759,6 +3759,7 @@
     "verdict": "deny",
     "kind": "message",
     "rules": [
+     "VFY-MSG-001",
      "VFY-SEC-001"
     ]
    }
@@ -3776,9 +3777,11 @@
    "policy": {},
    "context": {},
    "expect": {
-    "verdict": "allow",
+    "verdict": "ask",
     "kind": "message",
-    "rules": []
+    "rules": [
+     "VFY-MSG-001"
+    ]
    }
   },
   {
@@ -4376,7 +4379,8 @@
    },
    "policy": {
     "session": {
-     "after_outside_text": "ask"
+     "after_outside_text": "ask",
+     "include_network": true
     }
    },
    "context": {
@@ -4400,7 +4404,8 @@
    },
    "policy": {
     "session": {
-     "after_outside_text": "ask"
+     "after_outside_text": "ask",
+     "include_network": true
     }
    },
    "context": {
@@ -4435,6 +4440,7 @@
     "verdict": "ask",
     "kind": "message",
     "rules": [
+     "VFY-MSG-001",
      "VFY-SESSION-001"
     ]
    }
@@ -4473,7 +4479,8 @@
    },
    "policy": {
     "session": {
-     "after_outside_text": "deny"
+     "after_outside_text": "deny",
+     "include_network": true
     }
    },
    "context": {
@@ -4543,7 +4550,8 @@
    },
    "policy": {
     "session": {
-     "after_outside_text": "ask"
+     "after_outside_text": "ask",
+     "include_network": true
     },
     "tools": {
      "trust": [
@@ -4594,7 +4602,8 @@
    },
    "policy": {
     "session": {
-     "after_outside_text": "ask"
+     "after_outside_text": "ask",
+     "include_network": true
     },
     "network": {
      "allow": [
@@ -4621,7 +4630,8 @@
    },
    "policy": {
     "session": {
-     "after_outside_text": "ask"
+     "after_outside_text": "ask",
+     "include_network": true
     },
     "network": {
      "allow": [
@@ -4651,7 +4661,8 @@
    },
    "policy": {
     "session": {
-     "after_outside_text": "ask"
+     "after_outside_text": "ask",
+     "include_network": true
     },
     "network": {
      "allow": [
@@ -4809,24 +4820,6 @@
     }
    },
    "context": {},
-   "expect": {
-    "verdict": "allow",
-    "kind": "network",
-    "rules": []
-   }
-  },
-  {
-   "name": "switched off: a network call is fine",
-   "action": {
-    "tool": "fetch",
-    "arguments": {
-     "url": "https://example.org"
-    }
-   },
-   "policy": {},
-   "context": {
-    "untrusted": "WebFetch"
-   },
    "expect": {
     "verdict": "allow",
     "kind": "network",
@@ -5750,6 +5743,230 @@
    "expect": {
     "verdict": "allow",
     "kind": "file_write",
+    "rules": []
+   }
+  },
+  {
+   "name": "after outside text: without include_network a request to a site is fine",
+   "action": {
+    "tool": "fetch",
+    "arguments": {
+     "url": "https://example.org"
+    }
+   },
+   "policy": {
+    "session": {
+     "after_outside_text": "ask"
+    }
+   },
+   "context": {
+    "untrusted": "WebFetch"
+   },
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "rules": []
+   }
+  },
+  {
+   "name": "default: a plain request to a site is fine after outside text",
+   "action": {
+    "tool": "fetch",
+    "arguments": {
+     "url": "https://example.org"
+    }
+   },
+   "policy": {},
+   "context": {
+    "untrusted": "WebFetch"
+   },
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "rules": []
+   }
+  },
+  {
+   "name": "default: a delete asks after outside text",
+   "action": {
+    "tool": "delete_file",
+    "arguments": {
+     "path": "notes.txt"
+    }
+   },
+   "policy": {},
+   "context": {
+    "untrusted": "WebFetch"
+   },
+   "expect": {
+    "verdict": "ask",
+    "kind": "file_delete",
+    "rules": [
+     "VFY-SESSION-001"
+    ]
+   }
+  },
+  {
+   "name": "default: git push asks after outside text",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "git push origin main"
+    }
+   },
+   "policy": {},
+   "context": {
+    "untrusted": "WebFetch"
+   },
+   "expect": {
+    "verdict": "ask",
+    "kind": "shell",
+    "rules": [
+     "VFY-SESSION-001"
+    ]
+   }
+  },
+  {
+   "name": "switched off: a delete is fine after outside text",
+   "action": {
+    "tool": "delete_file",
+    "arguments": {
+     "path": "notes.txt"
+    }
+   },
+   "policy": {
+    "session": {
+     "after_outside_text": "off"
+    }
+   },
+   "context": {
+    "untrusted": "WebFetch"
+   },
+   "expect": {
+    "verdict": "allow",
+    "kind": "file_delete",
+    "rules": []
+   }
+  },
+  {
+   "name": "default: a message asks",
+   "action": {
+    "tool": "send_message",
+    "arguments": {
+     "to": "a@b.co",
+     "body": "hi"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "message",
+    "rules": [
+     "VFY-MSG-001"
+    ]
+   }
+  },
+  {
+   "name": "default: a slack post asks",
+   "action": {
+    "tool": "post_message",
+    "arguments": {
+     "channel": "#general",
+     "text": "hi"
+    },
+    "server": "slack"
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "message",
+    "rules": [
+     "VFY-MSG-001"
+    ]
+   }
+  },
+  {
+   "name": "messages.send allow lets a message through",
+   "action": {
+    "tool": "send_message",
+    "arguments": {
+     "to": "a@b.co",
+     "body": "hi"
+    }
+   },
+   "policy": {
+    "messages": {
+     "send": "allow"
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "message",
+    "rules": []
+   }
+  },
+  {
+   "name": "messages.send deny blocks a message",
+   "action": {
+    "tool": "send_message",
+    "arguments": {
+     "to": "a@b.co",
+     "body": "hi"
+    }
+   },
+   "policy": {
+    "messages": {
+     "send": "deny"
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "message",
+    "rules": [
+     "VFY-MSG-001"
+    ]
+   }
+  },
+  {
+   "name": "a trusted messaging tool is fine",
+   "action": {
+    "tool": "send_message",
+    "arguments": {
+     "to": "a@b.co",
+     "body": "hi"
+    }
+   },
+   "policy": {
+    "tools": {
+     "trust": [
+      "send_message"
+     ]
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "message",
+    "rules": []
+   }
+  },
+  {
+   "name": "a message tool without a recipient is not a message",
+   "action": {
+    "tool": "send_message",
+    "arguments": {
+     "draft_id": "d1"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "other",
     "rules": []
    }
   }
