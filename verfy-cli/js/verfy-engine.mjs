@@ -293,7 +293,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
   }
 
   // "Do not include API keys" is the opposite of asking for them: a match right after a negation is skipped
-  var NEGATION = /\b(?:do\s+not|don'?t|never|must\s+not|should\s+not|shouldn'?t|avoid|no)\s+(?:[A-Za-z']+\s+){0,2}$/i;
+  var NEGATION = /\b(?:do\s+not|don'?t|never|neither|must\s+not|should\s+not|shouldn'?t|avoid|no)\s+(?:[A-Za-z']+\s+){0,2}$/i;
   function affirmed(pattern, flags, text) {
     var re = rx(pattern, flags, true), m;
     while ((m = re.exec(text)) !== null) {

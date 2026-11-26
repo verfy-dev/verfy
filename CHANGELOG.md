@@ -2,6 +2,10 @@
 
 What changed in the Verfy CLI (`pip install verfy`) and the website. Newest first. Every CLI version is on [PyPI](https://pypi.org/project/verfy/#history) and as standalone builds on the [releases page](https://github.com/verfy-dev/verfy-releases/releases).
 
+## 0.27.1 (2026-11-26)
+
+- **A false alarm in the scanner, found by Verfy's own weekly research.** `@azure-devops/mcp` 2.9.0 and 2.11.0 describe a filter that "neither include[s] nor exclude[s] secrets"; the scanner read "include ... secrets" as a request for sensitive data and rated the tool critical (VFY-SCAN-002). A match right after "neither" is now skipped, like one after "do not" or "never". Asking for secrets is still caught. `tests/test_scan_negation.py`.
+
 ## 0.27.0 (2026-11-26)
 
 - **Safer defaults.** Two protections that had to be switched on are now on:
