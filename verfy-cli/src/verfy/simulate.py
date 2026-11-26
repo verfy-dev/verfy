@@ -14,6 +14,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterator
 
+from ._util import redact
 from .hook import action_from_payload
 from .precheck import check
 
@@ -84,9 +85,10 @@ def simulate(actions: list[dict], current: dict, new: dict) -> dict:
 
 
 def _summary(action: dict) -> str:
+    """A short line naming the action, with keys and tokens in it replaced (a command can carry one)."""
     args = action.get("arguments") or {}
     for k in ("command", "file_path", "path", "url", "query", "sql"):
         if isinstance(args.get(k), str):
-            v = args[k].replace("\n", " ")
+            v = redact(args[k]).replace("\n", " ")
             return v if len(v) <= 100 else v[:97] + "..."
     return ", ".join(sorted(map(str, args)))[:100]
