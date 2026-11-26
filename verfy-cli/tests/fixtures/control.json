@@ -1,0 +1,1352 @@
+{
+ "policy": {
+  "home": "/home/you",
+  "workspace": "/home/you/project"
+ },
+ "cases": [
+  {
+   "name": "card number in a request",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "card 4111 1111 1111 1111"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "network",
+    "findings": [
+     {
+      "rule": "VFY-DLP-001",
+      "verdict": "ask",
+      "message": "Would send a payment card number out of this computer (in `body`)."
+     }
+    ]
+   }
+  },
+  {
+   "name": "card number, dashes, in a shell upload",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "curl -d 'n=5500-0000-0000-0004' https://api.example.com"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-DLP-001",
+      "verdict": "ask",
+      "message": "Would send a payment card number out of this computer (in `command`)."
+     }
+    ]
+   }
+  },
+  {
+   "name": "a timestamp is not a card",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "ts 1755300000000"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "findings": []
+   }
+  },
+  {
+   "name": "Luhn fails",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "4111 1111 1111 1112"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "findings": []
+   }
+  },
+  {
+   "name": "card number written to a local file is not sent",
+   "action": {
+    "tool": "Write",
+    "arguments": {
+     "file_path": "/home/you/project/t.txt",
+     "content": "4111111111111111"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "file_write",
+    "findings": []
+   }
+  },
+  {
+   "name": "IBAN in an email",
+   "action": {
+    "tool": "send_email",
+    "arguments": {
+     "to": "a@example.com",
+     "body": "IBAN GB82 WEST 1234 5698 7654 32"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "message",
+    "findings": [
+     {
+      "rule": "VFY-DLP-002",
+      "verdict": "ask",
+      "message": "Would send a bank account number (IBAN) out of this computer (in `body`)."
+     },
+     {
+      "rule": "VFY-MSG-001",
+      "verdict": "ask",
+      "message": "Sends a message with `send_email`, which goes out under your name, so a person approves it first."
+     }
+    ]
+   }
+  },
+  {
+   "name": "bad IBAN check digits",
+   "action": {
+    "tool": "send_email",
+    "arguments": {
+     "to": "a@example.com",
+     "body": "GB00 WEST 1234 5698 7654 32"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "message",
+    "findings": [
+     {
+      "rule": "VFY-MSG-001",
+      "verdict": "ask",
+      "message": "Sends a message with `send_email`, which goes out under your name, so a person approves it first."
+     }
+    ]
+   }
+  },
+  {
+   "name": "SSN in a request",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "ssn 123-45-6789"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "network",
+    "findings": [
+     {
+      "rule": "VFY-DLP-003",
+      "verdict": "ask",
+      "message": "Would send what looks like a US social security number (in `body`)."
+     }
+    ]
+   }
+  },
+  {
+   "name": "SSN that cannot exist",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "000-45-6789"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "findings": []
+   }
+  },
+  {
+   "name": "five emails at once",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "a@x.io b@x.io c@x.io d@x.io e@x.io"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "network",
+    "findings": [
+     {
+      "rule": "VFY-DLP-004",
+      "verdict": "ask",
+      "message": "Would send 5 email addresses out of this computer at once."
+     }
+    ]
+   }
+  },
+  {
+   "name": "four emails",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "a@x.io b@x.io c@x.io d@x.io"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "findings": []
+   }
+  },
+  {
+   "name": "bulk 3",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "a@x.io b@x.io c@x.io"
+    }
+   },
+   "policy": {
+    "dlp": {
+     "bulk": 3
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "network",
+    "findings": [
+     {
+      "rule": "VFY-DLP-004",
+      "verdict": "ask",
+      "message": "Would send 3 email addresses out of this computer at once."
+     }
+    ]
+   }
+  },
+  {
+   "name": "personal off",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "4111 1111 1111 1111"
+    }
+   },
+   "policy": {
+    "dlp": {
+     "personal": "off"
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "findings": []
+   }
+  },
+  {
+   "name": "personal deny",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "4111 1111 1111 1111"
+    }
+   },
+   "policy": {
+    "dlp": {
+     "personal": "deny"
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "network",
+    "findings": [
+     {
+      "rule": "VFY-DLP-001",
+      "verdict": "deny",
+      "message": "Would send a payment card number out of this computer (in `body`)."
+     }
+    ]
+   }
+  },
+  {
+   "name": "customer pattern",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "ACME-CUST-12345"
+    }
+   },
+   "policy": {
+    "dlp": {
+     "patterns": [
+      {
+       "pattern": "ACME-CUST-\\d+",
+       "label": "a customer ID",
+       "then": "deny"
+      }
+     ]
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "network",
+    "findings": [
+     {
+      "rule": "VFY-DLP-005",
+      "verdict": "deny",
+      "message": "Would send a customer ID out of this computer (in `body`)."
+     }
+    ]
+   }
+  },
+  {
+   "name": "customer pattern without a label",
+   "action": {
+    "tool": "send_message",
+    "arguments": {
+     "channel": "#x",
+     "text": "acme-cust-9"
+    }
+   },
+   "policy": {
+    "dlp": {
+     "patterns": [
+      {
+       "pattern": "ACME-CUST-\\d+",
+       "flags": "i"
+      }
+     ]
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "message",
+    "findings": [
+     {
+      "rule": "VFY-DLP-005",
+      "verdict": "ask",
+      "message": "Would send data your policy protects (dlp.patterns[0]) out of this computer (in `text`)."
+     },
+     {
+      "rule": "VFY-MSG-001",
+      "verdict": "ask",
+      "message": "Sends a message with `send_message`, which goes out under your name, so a person approves it first."
+     }
+    ]
+   }
+  },
+  {
+   "name": "click Place order",
+   "action": {
+    "tool": "browser_click",
+    "arguments": {
+     "element": "Place order button",
+     "ref": "e12"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "browser",
+    "findings": [
+     {
+      "rule": "VFY-WEB-001",
+      "verdict": "ask",
+      "message": "Clicks `Place order button`, which looks like it buys or pays for something."
+     }
+    ]
+   }
+  },
+  {
+   "name": "click Buy now",
+   "action": {
+    "tool": "puppeteer_click",
+    "arguments": {
+     "selector": "#buy-now",
+     "text": "Buy now"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "browser",
+    "findings": [
+     {
+      "rule": "VFY-WEB-001",
+      "verdict": "ask",
+      "message": "Clicks `#buy-now Buy now`, which looks like it buys or pays for something."
+     }
+    ]
+   }
+  },
+  {
+   "name": "click Next",
+   "action": {
+    "tool": "browser_click",
+    "arguments": {
+     "element": "Next page link",
+     "ref": "e2"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "browser",
+    "findings": []
+   }
+  },
+  {
+   "name": "type a password",
+   "action": {
+    "tool": "browser_type",
+    "arguments": {
+     "element": "Password field",
+     "ref": "e3",
+     "text": "hunter2"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "browser",
+    "findings": [
+     {
+      "rule": "VFY-WEB-002",
+      "verdict": "ask",
+      "message": "Types into a password or payment field (`Password field`)."
+     }
+    ]
+   }
+  },
+  {
+   "name": "type in search",
+   "action": {
+    "tool": "browser_type",
+    "arguments": {
+     "element": "Search box",
+     "ref": "e4",
+     "text": "password manager"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "browser",
+    "findings": []
+   }
+  },
+  {
+   "name": "type a card number on a page",
+   "action": {
+    "tool": "browser_type",
+    "arguments": {
+     "element": "Card number",
+     "ref": "e5",
+     "text": "4111 1111 1111 1111"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "browser",
+    "findings": [
+     {
+      "rule": "VFY-WEB-002",
+      "verdict": "ask",
+      "message": "Types into a password or payment field (`Card number`)."
+     },
+     {
+      "rule": "VFY-DLP-001",
+      "verdict": "ask",
+      "message": "Would send a payment card number out of this computer (in `text`)."
+     }
+    ]
+   }
+  },
+  {
+   "name": "monthly budget",
+   "action": {
+    "tool": "pay",
+    "arguments": {
+     "amount": 30,
+     "currency": "USD",
+     "merchant": "acme"
+    }
+   },
+   "policy": {
+    "payments": {
+     "monthly_budget": 100
+    }
+   },
+   "context": {
+    "spent_month": 80
+   },
+   "expect": {
+    "verdict": "deny",
+    "kind": "payment",
+    "findings": [
+     {
+      "rule": "VFY-PAY-007",
+      "verdict": "deny",
+      "message": "This payment would take this month's spending to 110, over the monthly budget of 100."
+     }
+    ]
+   }
+  },
+  {
+   "name": "monthly budget not reached",
+   "action": {
+    "tool": "pay",
+    "arguments": {
+     "amount": 10,
+     "currency": "USD",
+     "merchant": "acme"
+    }
+   },
+   "policy": {
+    "payments": {
+     "monthly_budget": 100
+    }
+   },
+   "context": {
+    "spent_month": 80
+   },
+   "expect": {
+    "verdict": "allow",
+    "kind": "payment",
+    "findings": []
+   }
+  },
+  {
+   "name": "merchant per call",
+   "action": {
+    "tool": "pay",
+    "arguments": {
+     "amount": 50,
+     "currency": "USD",
+     "merchant": "acme"
+    }
+   },
+   "policy": {
+    "payments": {
+     "merchants": {
+      "acme": {
+       "max_per_call": 30
+      }
+     }
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "payment",
+    "findings": [
+     {
+      "rule": "VFY-PAY-008",
+      "verdict": "deny",
+      "message": "50 is over the limit of 30 for `acme`."
+     },
+     {
+      "rule": "VFY-PAY-003",
+      "verdict": "ask",
+      "message": "50 is above the approval threshold of 20."
+     }
+    ]
+   }
+  },
+  {
+   "name": "merchant daily",
+   "action": {
+    "tool": "pay",
+    "arguments": {
+     "amount": 10,
+     "currency": "USD",
+     "payee": "shop-12"
+    }
+   },
+   "policy": {
+    "payments": {
+     "merchants": {
+      "shop-*": {
+       "daily": 15
+      }
+     }
+    }
+   },
+   "context": {
+    "spent_payee_today": 8
+   },
+   "expect": {
+    "verdict": "deny",
+    "kind": "payment",
+    "findings": [
+     {
+      "rule": "VFY-PAY-008",
+      "verdict": "deny",
+      "message": "This payment would take today's spending at `shop-12` to 18, over its daily limit of 15."
+     }
+    ]
+   }
+  },
+  {
+   "name": "other merchant",
+   "action": {
+    "tool": "pay",
+    "arguments": {
+     "amount": 10,
+     "currency": "USD",
+     "payee": "other"
+    }
+   },
+   "policy": {
+    "payments": {
+     "merchants": {
+      "shop-*": {
+       "daily": 15
+      }
+     }
+    }
+   },
+   "context": {
+    "spent_payee_today": 8
+   },
+   "expect": {
+    "verdict": "allow",
+    "kind": "payment",
+    "findings": []
+   }
+  },
+  {
+   "name": "category blocked",
+   "action": {
+    "tool": "pay",
+    "arguments": {
+     "amount": 5,
+     "currency": "USD",
+     "merchant": "x",
+     "category": "gambling"
+    }
+   },
+   "policy": {
+    "payments": {
+     "categories": {
+      "gambling": {
+       "max_per_call": 0
+      }
+     }
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "payment",
+    "findings": [
+     {
+      "rule": "VFY-PAY-009",
+      "verdict": "deny",
+      "message": "5 is over the limit of 0 for the category `gambling`."
+     }
+    ]
+   }
+  },
+  {
+   "name": "category by MCC, ask",
+   "action": {
+    "tool": "pay",
+    "arguments": {
+     "amount": 40,
+     "currency": "USD",
+     "merchant": "x",
+     "mcc": 7995
+    }
+   },
+   "policy": {
+    "payments": {
+     "categories": {
+      "7995": {
+       "daily": 30,
+       "then": "ask"
+      }
+     }
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "payment",
+    "findings": [
+     {
+      "rule": "VFY-PAY-003",
+      "verdict": "ask",
+      "message": "40 is above the approval threshold of 20."
+     },
+     {
+      "rule": "VFY-PAY-009",
+      "verdict": "ask",
+      "message": "This payment would take today's spending in `7995` to 40, over its daily limit of 30."
+     }
+    ]
+   }
+  },
+  {
+   "name": "category monthly",
+   "action": {
+    "tool": "pay",
+    "arguments": {
+     "amount": 40,
+     "currency": "USD",
+     "merchant": "x",
+     "category": "travel"
+    }
+   },
+   "policy": {
+    "payments": {
+     "categories": {
+      "travel": {
+       "monthly": 500
+      }
+     }
+    }
+   },
+   "context": {
+    "spent_category_month": 480
+   },
+   "expect": {
+    "verdict": "deny",
+    "kind": "payment",
+    "findings": [
+     {
+      "rule": "VFY-PAY-009",
+      "verdict": "deny",
+      "message": "This payment would take this month's spending in `travel` to 520, over its monthly limit of 500."
+     },
+     {
+      "rule": "VFY-PAY-003",
+      "verdict": "ask",
+      "message": "40 is above the approval threshold of 20."
+     }
+    ]
+   }
+  },
+  {
+   "name": "unknown recipient denied",
+   "action": {
+    "tool": "pay",
+    "arguments": {
+     "amount": 5,
+     "currency": "USD",
+     "to": "stranger"
+    }
+   },
+   "policy": {
+    "payments": {
+     "recipients": [
+      "acme"
+     ],
+     "unknown_recipient": "deny"
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "payment",
+    "findings": [
+     {
+      "rule": "VFY-PAY-005",
+      "verdict": "deny",
+      "message": "`stranger` is not on the list of known recipients."
+     }
+    ]
+   }
+  },
+  {
+   "name": "stop all",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "ls"
+    }
+   },
+   "policy": {
+    "stop": {
+     "all": {
+      "reason": "incident 42"
+     }
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-STOP-001",
+      "verdict": "deny",
+      "message": "A person stopped every agent with `verfy stop` (incident 42). Nothing runs until a person runs `verfy resume` in a terminal."
+     }
+    ]
+   }
+  },
+  {
+   "name": "stop all, team",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "ls"
+    }
+   },
+   "policy": {
+    "stop": {
+     "all": {
+      "by": "team"
+     }
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-STOP-001",
+      "verdict": "deny",
+      "message": "Your team stopped every agent in Verfy Cloud. Nothing runs until the team resumes them there."
+     }
+    ]
+   }
+  },
+  {
+   "name": "stop one agent",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "ls"
+    }
+   },
+   "policy": {
+    "stop": {
+     "agents": {
+      "cursor": {}
+     }
+    }
+   },
+   "context": {
+    "agent": "cursor"
+   },
+   "expect": {
+    "verdict": "deny",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-STOP-001",
+      "verdict": "deny",
+      "message": "A person stopped the agent `cursor` with `verfy stop`. Nothing runs until a person runs `verfy resume` in a terminal."
+     }
+    ]
+   }
+  },
+  {
+   "name": "stop another agent",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "ls"
+    }
+   },
+   "policy": {
+    "stop": {
+     "agents": {
+      "cursor": {}
+     }
+    }
+   },
+   "context": {
+    "agent": "claude-code"
+   },
+   "expect": {
+    "verdict": "allow",
+    "kind": "shell",
+    "findings": []
+   }
+  },
+  {
+   "name": "stop beats trust",
+   "action": {
+    "tool": "safe_tool",
+    "arguments": {
+     "x": 1
+    }
+   },
+   "policy": {
+    "stop": {
+     "all": true
+    },
+    "tools": {
+     "trust": [
+      "safe_tool"
+     ]
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "other",
+    "findings": [
+     {
+      "rule": "VFY-STOP-001",
+      "verdict": "deny",
+      "message": "A person stopped every agent with `verfy stop`. Nothing runs until a person runs `verfy resume` in a terminal."
+     }
+    ]
+   }
+  },
+  {
+   "name": "stop beats disabled_rules",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "ls"
+    }
+   },
+   "policy": {
+    "stop": {
+     "all": true
+    },
+    "disabled_rules": [
+     "VFY-STOP-001"
+    ]
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-STOP-001",
+      "verdict": "deny",
+      "message": "A person stopped every agent with `verfy stop`. Nothing runs until a person runs `verfy resume` in a terminal."
+     }
+    ]
+   }
+  },
+  {
+   "name": "stop beats observe",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "ls"
+    }
+   },
+   "policy": {
+    "stop": {
+     "all": true
+    },
+    "mode": "observe"
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-STOP-001",
+      "verdict": "deny",
+      "message": "A person stopped every agent with `verfy stop`. Nothing runs until a person runs `verfy resume` in a terminal."
+     }
+    ]
+   }
+  },
+  {
+   "name": "observe: delete home",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "rm -rf ~"
+    }
+   },
+   "policy": {
+    "mode": "observe"
+   },
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-SH-001",
+      "verdict": "deny",
+      "message": "Recursive delete of `~` would wipe far more than intended."
+     },
+     {
+      "rule": "VFY-SH-030",
+      "verdict": "deny",
+      "message": "Recursive delete of a drive or home folder."
+     }
+    ],
+    "would": "deny"
+   }
+  },
+  {
+   "name": "observe: write outside",
+   "action": {
+    "tool": "Write",
+    "arguments": {
+     "file_path": "/home/you/other/x.txt",
+     "content": "x"
+    }
+   },
+   "policy": {
+    "mode": "observe"
+   },
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "file_write",
+    "findings": [
+     {
+      "rule": "VFY-FS-002",
+      "verdict": "ask",
+      "message": "Changes /home/you/other/x.txt, which is outside the project."
+     }
+    ],
+    "would": "ask"
+   }
+  },
+  {
+   "name": "observe keeps self-protection",
+   "action": {
+    "tool": "Write",
+    "arguments": {
+     "file_path": "/home/you/.verfy/policy.json",
+     "content": "{}"
+    }
+   },
+   "policy": {
+    "mode": "observe"
+   },
+   "context": {},
+   "expect": {
+    "verdict": "deny",
+    "kind": "file_write",
+    "findings": [
+     {
+      "rule": "VFY-FS-001",
+      "verdict": "deny",
+      "message": "Changes /home/you/.verfy/policy.json, which is protected (`**/.verfy/**`)."
+     }
+    ]
+   }
+  },
+  {
+   "name": "observe: nothing to see",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "ls"
+    }
+   },
+   "policy": {
+    "mode": "observe"
+   },
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "shell",
+    "findings": []
+   }
+  },
+  {
+   "name": "break glass waives an ask",
+   "action": {
+    "tool": "Write",
+    "arguments": {
+     "file_path": "/home/you/other/x.txt",
+     "content": "x"
+    }
+   },
+   "policy": {
+    "breakglass": {
+     "id": "bg_test",
+     "until": "2099-01-01T00:00:00Z",
+     "reason": "incident"
+    }
+   },
+   "context": {
+    "now": "2026-11-26T12:00:00Z"
+   },
+   "expect": {
+    "verdict": "allow",
+    "kind": "file_write",
+    "findings": [
+     {
+      "rule": "VFY-FS-002",
+      "verdict": "ask",
+      "message": "Changes /home/you/other/x.txt, which is outside the project.",
+      "waived": "breakglass"
+     }
+    ],
+    "breakglass": "bg_test"
+   }
+  },
+  {
+   "name": "break glass leaves a deny",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "rm -rf ~"
+    }
+   },
+   "policy": {
+    "breakglass": {
+     "id": "bg_test",
+     "until": "2099-01-01T00:00:00Z",
+     "reason": "incident"
+    }
+   },
+   "context": {
+    "now": "2026-11-26T12:00:00Z"
+   },
+   "expect": {
+    "verdict": "deny",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-SH-001",
+      "verdict": "deny",
+      "message": "Recursive delete of `~` would wipe far more than intended."
+     },
+     {
+      "rule": "VFY-SH-030",
+      "verdict": "deny",
+      "message": "Recursive delete of a drive or home folder."
+     }
+    ]
+   }
+  },
+  {
+   "name": "break glass names a deny",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "rm -rf ~"
+    }
+   },
+   "policy": {
+    "breakglass": {
+     "id": "bg_test",
+     "until": "2099-01-01T00:00:00Z",
+     "reason": "incident",
+     "rules": [
+      "VFY-SH-*"
+     ]
+    }
+   },
+   "context": {
+    "now": "2026-11-26T12:00:00Z"
+   },
+   "expect": {
+    "verdict": "allow",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-SH-001",
+      "verdict": "deny",
+      "message": "Recursive delete of `~` would wipe far more than intended.",
+      "waived": "breakglass"
+     },
+     {
+      "rule": "VFY-SH-030",
+      "verdict": "deny",
+      "message": "Recursive delete of a drive or home folder.",
+      "waived": "breakglass"
+     }
+    ],
+    "breakglass": "bg_test"
+   }
+  },
+  {
+   "name": "break glass named rule only",
+   "action": {
+    "tool": "Write",
+    "arguments": {
+     "file_path": "/home/you/other/x.txt",
+     "content": "x"
+    }
+   },
+   "policy": {
+    "breakglass": {
+     "id": "bg_test",
+     "until": "2099-01-01T00:00:00Z",
+     "reason": "incident",
+     "rules": [
+      "VFY-NET-*"
+     ]
+    }
+   },
+   "context": {
+    "now": "2026-11-26T12:00:00Z"
+   },
+   "expect": {
+    "verdict": "ask",
+    "kind": "file_write",
+    "findings": [
+     {
+      "rule": "VFY-FS-002",
+      "verdict": "ask",
+      "message": "Changes /home/you/other/x.txt, which is outside the project."
+     }
+    ]
+   }
+  },
+  {
+   "name": "break glass over",
+   "action": {
+    "tool": "Write",
+    "arguments": {
+     "file_path": "/home/you/other/x.txt",
+     "content": "x"
+    }
+   },
+   "policy": {
+    "breakglass": {
+     "id": "bg_test",
+     "until": "2026-11-26T11:00:00Z",
+     "reason": "incident"
+    }
+   },
+   "context": {
+    "now": "2026-11-26T12:00:00Z"
+   },
+   "expect": {
+    "verdict": "ask",
+    "kind": "file_write",
+    "findings": [
+     {
+      "rule": "VFY-FS-002",
+      "verdict": "ask",
+      "message": "Changes /home/you/other/x.txt, which is outside the project."
+     }
+    ]
+   }
+  },
+  {
+   "name": "break glass never waives self-protection",
+   "action": {
+    "tool": "Write",
+    "arguments": {
+     "file_path": "/home/you/.verfy/policy.json",
+     "content": "{}"
+    }
+   },
+   "policy": {
+    "breakglass": {
+     "id": "bg_test",
+     "until": "2099-01-01T00:00:00Z",
+     "reason": "incident",
+     "rules": [
+      "*",
+      "VFY-SELF-*"
+     ]
+    }
+   },
+   "context": {
+    "now": "2026-11-26T12:00:00Z"
+   },
+   "expect": {
+    "verdict": "deny",
+    "kind": "file_write",
+    "findings": [
+     {
+      "rule": "VFY-FS-001",
+      "verdict": "deny",
+      "message": "Changes /home/you/.verfy/policy.json, which is protected (`**/.verfy/**`)."
+     }
+    ]
+   }
+  },
+  {
+   "name": "break glass and observe",
+   "action": {
+    "tool": "Bash",
+    "arguments": {
+     "command": "rm -rf ~"
+    }
+   },
+   "policy": {
+    "breakglass": {
+     "id": "bg_test",
+     "until": "2099-01-01T00:00:00Z",
+     "reason": "incident"
+    },
+    "mode": "observe"
+   },
+   "context": {
+    "now": "2026-11-26T12:00:00Z"
+   },
+   "expect": {
+    "verdict": "allow",
+    "kind": "shell",
+    "findings": [
+     {
+      "rule": "VFY-SH-001",
+      "verdict": "deny",
+      "message": "Recursive delete of `~` would wipe far more than intended."
+     },
+     {
+      "rule": "VFY-SH-030",
+      "verdict": "deny",
+      "message": "Recursive delete of a drive or home folder."
+     }
+    ],
+    "would": "deny"
+   }
+  }
+ ]
+}

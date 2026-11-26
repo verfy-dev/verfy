@@ -1,0 +1,41 @@
+name: Receipt verifiers
+
+on:
+  push:
+    branches: [main]
+    paths: ["verifiers/**", "verfy-cli/tests/fixtures/**", ".github/workflows/verifiers.yml"]
+  pull_request:
+    paths: ["verifiers/**", "verfy-cli/tests/fixtures/**", ".github/workflows/verifiers.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verifiers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Go passes the shared receipt and canonical JSON vectors (the runner's Go)
+        working-directory: verifiers/go
+        run: |
+          go version
+          go vet ./...
+          go test ./...
+          go build ./cmd/verfy-verify
+  rust:
+    name: Rust verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust passes the shared receipt and canonical JSON vectors (the runner's toolchain)
+        working-directory: verifiers/rust
+        run: |
+          cargo --version
+          cargo test

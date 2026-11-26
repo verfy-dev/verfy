@@ -1010,7 +1010,8 @@ def apply(home: Path | None, session: str, checked: list[tuple[dict, dict]], pol
         if added:
             added.sort(key=lambda f: -VERDICT_RANK[f["verdict"]])
             decision["findings"] = sorted([*decision.get("findings", []), *added[:8]], key=lambda f: -VERDICT_RANK[f["verdict"]])
-            decision["verdict"] = decision["findings"][0]["verdict"]
+            from .precheck import settle
+            settle(decision, policy)
     if state is not None:
         def step(data: dict) -> None:
             _prune(data, now)

@@ -208,6 +208,9 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     var inc = (pol.session || {}).include_network;
     if (inc !== undefined && inc !== true && inc !== false) throw new Error("session.include_network must be true or false");
     if (pol.messages !== undefined && (!isObj(pol.messages) || ["ask", "deny", "allow"].indexOf(pol.messages.send === undefined ? "ask" : pol.messages.send) < 0)) throw new Error("messages.send must be ask, deny or allow");
+    if (["enforce", "observe"].indexOf(pol.mode === undefined ? "enforce" : pol.mode) < 0) throw new Error("mode must be enforce or observe");
+    if (pol.dlp !== undefined && (!isObj(pol.dlp) || ["ask", "deny", "off"].indexOf(pol.dlp.personal === undefined ? "ask" : pol.dlp.personal) < 0)) throw new Error("dlp.personal must be ask, deny or off");
+    if ((pol.payments || {}).unknown_recipient !== undefined && ["ask", "deny"].indexOf(pol.payments.unknown_recipient) < 0) throw new Error("payments.unknown_recipient must be ask or deny");
     return pol;
   }
 
@@ -833,6 +836,17 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     if (Array.isArray(args.edits)) args.edits.forEach(function (e) { if (isObj(e)) pairs.push([e.old_string, e.new_string]); });
     return pairs.some(function (pr) { return typeof pr[0] === "string" && typeof pr[1] === "string" && pr[0].toLowerCase().indexOf("verfy") >= 0 && pr[1].toLowerCase().indexOf("verfy") < 0; });
   }
+  // what loosens Verfy for a while or for good; only a person runs it, in a terminal
+  var PERSON_ONLY = {
+    "resume": "`verfy resume` starts the agents again after a stop. A person has to run it.",
+    "breakglass": "`verfy breakglass` opens emergency access past the rules. A person has to run it.",
+    "policy observe": "`verfy policy observe` stops Verfy from blocking anything. A person has to run it.",
+    "rule add": "`verfy rule add` changes the rules Verfy enforces. A person has to read the rule and run it.",
+    "rule remove": "`verfy rule remove` removes a rule Verfy enforces. A person has to run it.",
+    "policy pack": "`verfy policy pack` changes the rules Verfy enforces. A person has to run it.",
+    "agent create": "`verfy agent create` makes a signing key that speaks for you. A person has to run it.",
+    "agent revoke": "`verfy agent revoke` changes which agent keys you stand behind. A person has to run it."
+  };
   function verfyCommand(s) {
     var n = s.name.toLowerCase().replace(/\.exe$/, ""), a = s.args, py = /^python[0-9.]*$|^py$/.test(n);
     if (py && a[0] === "-m" && a[1] === "verfy") { n = "verfy"; a = a.slice(2); }
@@ -855,6 +869,8 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
       if ((w[0] === "team" && w[1] === "enroll") || (w[0] === "init" && a.some(function (x) { var f = x.split("=")[0]; return f === "--url" || f === "--code"; })))
         return F("VFY-SELF-003", "deny", "Connects this device to a Verfy Cloud, which decides where its receipts go. A person has to run it.");
       if (w[0] === "team" && w[1] === "auto-sync" && w[2] === "off") return F("VFY-SELF-003", "deny", "`verfy team auto-sync off` stops this device's receipts from reaching your team. A person has to run it.");
+      var person = PERSON_ONLY[w.slice(0, 2).join(" ")] || PERSON_ONLY[w.slice(0, 1).join(" ")];
+      if (person) return F("VFY-SELF-003", "deny", person);
       return null;
     }
     var pip = has(["pip", "pip3", "pipx"], n) || (n === "uv" && (a[0] === "pip" || a[0] === "tool")) || (py && a[0] === "-m" && a[1] === "pip");
@@ -1135,6 +1151,8 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     }
     if (PATTERNS.url_keys.some(function (uk) { return typeof keys[uk] === "string"; })) return "network";
     if (intersects(w, setOf(verbs.message)) && keyList.some(function (x) { return has(["to", "recipient", "recipients", "channel", "body", "text", "message", "subject", "chat_id", "content"], x); })) return "message";
+    // a click or typing on a web page: browser_click {"element": "Place order", "ref": "e12"}
+    if (intersects(w, setOf(PATTERNS.browser.acts)) && keyList.some(function (x) { return has(PATTERNS.browser.target_keys, x); })) return "browser";
     return "other";
   }
   // the path in a file: URL: a tool that takes `uri` reads the same file as one that takes `path`
@@ -1175,20 +1193,41 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     var out = [], pay = pol.payments, keys = lowerKeys(args), amount = paymentAmount(args);
     if (amount === null) return out;
     if (amount < 0) return [F("VFY-PAY-006", "deny", "The amount is negative.")];
-    var spent = Number(context.spent_today || 0);
+    var spent = Number(context.spent_today || 0), month = Number(context.spent_month || 0);
     if (pay.max_per_call !== null && pay.max_per_call !== undefined && amount > pay.max_per_call) out.push(F("VFY-PAY-001", "deny", fmt(amount) + " is over the per-payment limit of " + fmt(pay.max_per_call) + "."));
     else if (pay.daily_budget !== null && pay.daily_budget !== undefined && spent + amount > pay.daily_budget) out.push(F("VFY-PAY-002", "deny", "This payment would take today's spending to " + fmt(spent + amount) + ", over the daily budget of " + fmt(pay.daily_budget) + "."));
+    else if (pay.monthly_budget !== null && pay.monthly_budget !== undefined && month + amount > pay.monthly_budget) out.push(F("VFY-PAY-007", "deny", "This payment would take this month's spending to " + fmt(month + amount) + ", over the monthly budget of " + fmt(pay.monthly_budget) + "."));
     else if (pay.ask_above !== null && pay.ask_above !== undefined && amount > pay.ask_above) out.push(F("VFY-PAY-003", "ask", fmt(amount) + " is above the approval threshold of " + fmt(pay.ask_above) + "."));
     var cur = keys.currency || keys.ccy;
     if (typeof cur === "string" && pay.currencies && pay.currencies.length && pay.currencies.map(function (c) { return c.toUpperCase(); }).indexOf(cur.toUpperCase()) < 0) out.push(F("VFY-PAY-004", "ask", "Currency " + cur.toUpperCase() + " is not on the allowed list."));
-    if (pay.recipients && pay.recipients.length) {
-      for (var i = 0; i < PATTERNS.recipient_keys.length; i++) {
-        var rk = PATTERNS.recipient_keys[i];
-        if (typeof keys[rk] === "string") {
-          if (!pay.recipients.some(function (p) { return nameMatch(p, keys[rk]); })) out.push(F("VFY-PAY-005", "ask", "`" + keys[rk] + "` is not on the list of known recipients."));
-          break;
-        }
-      }
+    var payee = null, i;
+    for (i = 0; i < PATTERNS.recipient_keys.length; i++) if (typeof keys[PATTERNS.recipient_keys[i]] === "string") { payee = keys[PATTERNS.recipient_keys[i]]; break; }
+    if (pay.recipients && pay.recipients.length && payee !== null && !pay.recipients.some(function (p) { return nameMatch(p, payee); })) {
+      out.push(F("VFY-PAY-005", pay.unknown_recipient === "deny" ? "deny" : "ask", "`" + payee + "` is not on the list of known recipients."));
+    }
+    var merchants = isObj(pay.merchants) ? pay.merchants : {}, names = Object.keys(merchants);
+    for (i = 0; i < names.length; i++) {
+      var lim = merchants[names[i]];
+      if (payee === null || !isObj(lim) || !nameMatch(names[i], payee)) continue;
+      var day = Number(context.spent_payee_today || 0);
+      if (lim.max_per_call !== null && lim.max_per_call !== undefined && amount > lim.max_per_call) out.push(F("VFY-PAY-008", "deny", fmt(amount) + " is over the limit of " + fmt(lim.max_per_call) + " for `" + payee + "`."));
+      else if (lim.daily !== null && lim.daily !== undefined && day + amount > lim.daily) out.push(F("VFY-PAY-008", "deny", "This payment would take today's spending at `" + payee + "` to " + fmt(day + amount) + ", over its daily limit of " + fmt(lim.daily) + "."));
+      break;
+    }
+    var cat = null;
+    for (i = 0; i < PATTERNS.dlp.category_keys.length; i++) {
+      var cv = keys[PATTERNS.dlp.category_keys[i]];
+      if (typeof cv === "string" || typeof cv === "number") { cat = String(cv); break; }
+    }
+    var cats = isObj(pay.categories) ? pay.categories : {}, cnames = Object.keys(cats);
+    for (i = 0; i < cnames.length; i++) {
+      var cl = cats[cnames[i]];
+      if (cat === null || !isObj(cl) || !nameMatch(cnames[i], cat)) continue;
+      var then = cl.then === "ask" ? "ask" : "deny", cday = Number(context.spent_category_today || 0), cmon = Number(context.spent_category_month || 0);
+      if (cl.max_per_call !== null && cl.max_per_call !== undefined && amount > cl.max_per_call) out.push(F("VFY-PAY-009", then, fmt(amount) + " is over the limit of " + fmt(cl.max_per_call) + " for the category `" + cat + "`."));
+      else if (cl.daily !== null && cl.daily !== undefined && cday + amount > cl.daily) out.push(F("VFY-PAY-009", then, "This payment would take today's spending in `" + cat + "` to " + fmt(cday + amount) + ", over its daily limit of " + fmt(cl.daily) + "."));
+      else if (cl.monthly !== null && cl.monthly !== undefined && cmon + amount > cl.monthly) out.push(F("VFY-PAY-009", then, "This payment would take this month's spending in `" + cat + "` to " + fmt(cmon + amount) + ", over its monthly limit of " + fmt(cl.monthly) + "."));
+      break;
     }
     return out;
   }
@@ -1273,6 +1312,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
           }
         });
       } else if (kind === "payment") out = out.concat(checkPayment(args, pol, context));
+      else if (kind === "browser") out = out.concat(checkBrowser(tool, args));
       if (kind !== "shell") {
         // a path under any key, also nested: a tool may call it `location` or `options.path`
         var covered = kind.indexOf("file_") === 0 ? pathsOf(args).map(function (kp) { return kp[1]; }) : [];
@@ -1296,6 +1336,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
           else out.push(F("VFY-SEC-001", "ask", "Contains a " + s.label + " (in `" + (pt[0] || "arguments") + "`)."));
         });
       });
+      if (network || has(["network", "message", "browser"], kind)) out = out.concat(checkDlp(args, pol));
       if (kind === "message") {
         // a message goes out under the user's name and cannot be taken back; read with its default where used
         var sends = (pol.messages || {}).send || "ask";
@@ -1321,16 +1362,130 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
         if (pat.test(strs[i][1])) { out.push(F(r.id || "custom", r.verdict || "ask", r.message || "Matches a custom rule.")); break; }
       }
     });
+    var stop = stopped(pol.stop, String(context.agent || pol.agent || ""));
+    if (stop) out.unshift(F("VFY-STOP-001", "deny", stop)); // a person stopped the agents: nothing runs, whatever the rules say
     var disabled = setOf(pol.disabled_rules || []), seen = {}, findings = [];
     out.forEach(function (f) {
       var key = f.rule + "\u0000" + f.message;
-      // what guards Verfy itself cannot be listed away
-      if ((disabled[f.rule] && f.rule.indexOf("VFY-SELF-") !== 0) || seen[key]) return;
+      // what guards Verfy itself, and a stop, cannot be listed away
+      if ((disabled[f.rule] && !unlisted(f)) || seen[key]) return;
       seen[key] = true;
       findings.push(f);
     });
+    return settle({ v: "verfy.check/1", verdict: "allow", kind: kind, tool: full, findings: findings }, pol, context.now);
+  }
+
+  // findings no break glass waives and observe mode still enforces
+  function kept(f) { return f.rule.indexOf("VFY-SELF-") === 0 || f.rule.indexOf("VFY-STOP-") === 0 || f.rule === "VFY-FS-001" || f.rule === "VFY-SH-011"; }
+  function unlisted(f) { return f.rule.indexOf("VFY-SELF-") === 0 || f.rule.indexOf("VFY-STOP-") === 0; }
+  // why every action is blocked: `verfy stop` on this computer, or a team's stop from Verfy Cloud; null when running
+  function stopped(stop, agent) {
+    if (!isObj(stop)) return null;
+    var hit = stop.all, who = "every agent";
+    if (!hit) {
+      var agents = isObj(stop.agents) ? stop.agents : {};
+      var name = Object.keys(agents).filter(function (n) { return agent && nameMatch(n, agent); })[0];
+      if (name === undefined) return null;
+      hit = agents[name]; who = "the agent `" + agent + "`";
+    }
+    var info = isObj(hit) ? hit : {}, reason = info.reason ? " (" + String(info.reason).slice(0, 200) + ")" : "";
+    if (info.by === "team") return "Your team stopped " + who + " in Verfy Cloud" + reason + ". Nothing runs until the team resumes them there.";
+    return "A person stopped " + who + " with `verfy stop`" + reason + ". Nothing runs until a person runs `verfy resume` in a terminal.";
+  }
+  function isoTime(v) {
+    if (typeof v === "number") return v;
+    if (typeof v !== "string") return null;
+    var s = /(?:Z|[+-]\d\d:?\d\d)$/i.test(v) ? v : v + "Z", t = Date.parse(s);
+    return isNaN(t) ? null : t / 1000;
+  }
+  // the emergency access a person opened with `verfy breakglass`, while it lasts
+  function activeBreakglass(bg, now) {
+    if (!isObj(bg) || typeof bg.id !== "string") return null;
+    var until = isoTime(bg.until), t = now !== undefined && now !== null ? isoTime(now) : Date.now() / 1000;
+    return until !== null && t !== null && t < until ? bg : null;
+  }
+  function waived(f, bg) {
+    if (kept(f)) return false;
+    var pats = bg.rules && bg.rules.length ? bg.rules : ["*"];
+    return pats.some(function (p) { return p === "*" ? f.verdict === "ask" : typeof p === "string" && nameMatch(p, f.rule); });
+  }
+  // sort the findings and set the verdict, with break glass and observe mode applied
+  function settle(decision, policy, now) {
+    var findings = decision.findings || [];
     findings.sort(function (a, b) { return VERDICT_RANK[b.verdict] - VERDICT_RANK[a.verdict]; });
-    return { v: "verfy.check/1", verdict: findings.length ? findings[0].verdict : "allow", kind: kind, tool: full, findings: findings };
+    delete decision.would; delete decision.breakglass;
+    var bg = activeBreakglass(policy.breakglass, now);
+    findings.forEach(function (f) { delete f.waived; if (bg && waived(f, bg)) f.waived = "breakglass"; });
+    if (bg && findings.some(function (f) { return f.waived; })) decision.breakglass = bg.id;
+    var live = findings.filter(function (f) { return !f.waived; }), verdict = live.length ? live[0].verdict : "allow";
+    if (policy.mode === "observe" && verdict !== "allow") {
+      var keep = live.filter(kept), enforced = keep.length ? keep[0].verdict : "allow";
+      if (enforced !== verdict) { decision.would = verdict; verdict = enforced; } // observe mode: recorded, nothing blocked
+    }
+    decision.verdict = verdict;
+    return decision;
+  }
+  function checkBrowser(tool, args) {
+    var b = PATTERNS.browser, w = setOf(words(String(tool).split("/").pop())), keys = lowerKeys(args), out = [];
+    function label(names) { return names.filter(function (k) { return typeof keys[k] === "string"; }).map(function (k) { return keys[k]; }).join(" ").slice(0, 300); }
+    var clicked = label(b.label_keys);
+    if (intersects(w, setOf(["click", "press", "submit", "tap", "dblclick"])) && rx(b.buy, "i").test(clicked)) out.push(F("VFY-WEB-001", "ask", "Clicks `" + clicked.slice(0, 80) + "`, which looks like it buys or pays for something."));
+    var field = label(b.field_keys);
+    if (intersects(w, setOf(["type", "fill"])) && rx(b.secret_field, "i").test(field)) out.push(F("VFY-WEB-002", "ask", "Types into a password or payment field (`" + field.slice(0, 80) + "`)."));
+    return out;
+  }
+  function luhn(digits) {
+    var total = 0;
+    for (var i = 0; i < digits.length; i++) {
+      var n = Number(digits[digits.length - 1 - i]);
+      if (i % 2) n = n > 4 ? n * 2 - 9 : n * 2;
+      total += n;
+    }
+    return total % 10 === 0;
+  }
+  function ibanOk(s) {
+    s = s.replace(/ /g, "");
+    if (s.length < 15 || s.length > 34) return false;
+    var moved = s.slice(4) + s.slice(0, 4), digits = "";
+    for (var i = 0; i < moved.length; i++) digits += String(parseInt(moved[i], 36));
+    var r = 0;
+    for (i = 0; i < digits.length; i++) r = (r * 10 + Number(digits[i])) % 97;
+    return r === 1;
+  }
+  function allMatches(pat, text) {
+    var re = new RegExp(pat, "g"), out = [], m;
+    while ((m = re.exec(text)) !== null) { out.push(m[0]); if (m[0] === "") re.lastIndex++; }
+    return out;
+  }
+  // personal data leaving this computer; the value itself is never repeated in the message
+  function checkDlp(args, pol) {
+    var cfg = isObj(pol.dlp) ? pol.dlp : {}, personal = cfg.personal === undefined ? "ask" : cfg.personal, p = PATTERNS.dlp, out = [], emails = {};
+    var on = personal === "ask" || personal === "deny";
+    flattenStrings(args).forEach(function (pt) {
+      var where = pt[0] || "arguments", text = pt[1];
+      if (on) {
+        var cards = allMatches(p.card, text);
+        for (var i = 0; i < cards.length; i++) {
+          var digits = cards[i].replace(/[ -]/g, "");
+          if (digits.length >= 13 && digits.length <= 19 && Object.keys(setOf(digits.split(""))).length > 1 && luhn(digits)) {
+            out.push(F("VFY-DLP-001", personal, "Would send a payment card number out of this computer (in `" + where + "`)."));
+            break;
+          }
+        }
+        if (allMatches(p.iban, text).some(ibanOk)) out.push(F("VFY-DLP-002", personal, "Would send a bank account number (IBAN) out of this computer (in `" + where + "`)."));
+        if (rx(p.ssn, "").test(text)) out.push(F("VFY-DLP-003", personal, "Would send what looks like a US social security number (in `" + where + "`)."));
+        allMatches(p.email, text).forEach(function (e) { emails[e.toLowerCase()] = true; });
+      }
+      (cfg.patterns || []).forEach(function (spec, j) {
+        if (isObj(spec) && typeof spec.pattern === "string" && rx(spec.pattern, spec.flags || "").test(text)) {
+          var then = spec.then === "deny" ? "deny" : "ask", what = String(spec.label || "data your policy protects (dlp.patterns[" + j + "])").slice(0, 80);
+          out.push(F("VFY-DLP-005", then, "Would send " + what + " out of this computer (in `" + where + "`)."));
+        }
+      });
+    });
+    var bulk = cfg.bulk === undefined ? 5 : cfg.bulk, n = Object.keys(emails).length;
+    if (on && typeof bulk === "number" && Number.isInteger(bulk) && bulk > 0 && n >= bulk) out.push(F("VFY-DLP-004", personal, "Would send " + n + " email addresses out of this computer at once."));
+    return out;
   }
 
   /* ============================================================ Ed25519 (RFC 8032) */
@@ -1688,7 +1843,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     version: "0.2.0",
     PATTERNS: PATTERNS, DEFAULT_POLICY: DEFAULT_POLICY,
     canonical: canonical, digest: digest, sha256Hex: sha256Hex,
-    loadPolicy: loadPolicy, check: check, classify: classify, parseShell: parseShell,
+    loadPolicy: loadPolicy, check: check, settle: settle, stopped: stopped, classify: classify, parseShell: parseShell,
     scan: scan, toolPin: toolPin, unsafeTools: unsafeTools, grade: grade,
     scanSecrets: scanSecrets, redactValue: redactValue, paymentAmount: paymentAmount,
     checkServer: checkServer, configServers: configServers, checkConfig: checkConfig, packageOf: packageOf,

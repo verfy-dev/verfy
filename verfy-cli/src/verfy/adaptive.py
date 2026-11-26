@@ -323,7 +323,8 @@ def apply(home: Path | None, session: str, checked: list[tuple[dict, dict]], pol
                                                      "Verfy asks the first time. List packages you trust under packages.allow."))
             if added:
                 decision["findings"] = sorted([*decision.get("findings", []), *added], key=lambda f: -VERDICT_RANK[f["verdict"]])
-                decision["verdict"] = _verdict(decision["findings"])
+                from .precheck import settle
+                settle(decision, policy)
         # count the call, then learn from it unless it was blocked or the session is under escalation
         worst = max(checked, key=lambda ad: points(ad[1]))[1]
         p = points(worst)

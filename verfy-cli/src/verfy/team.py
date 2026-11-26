@@ -44,6 +44,8 @@ from .receipts import Key, b64u, read_ledger, receipt_hash
 
 BATCH_MAX = 500
 SYNC_EVERY = 300  # seconds between automatic uploads
+STOP_EVERY = 60  # seconds between checks for the team's stop (Verfy Cloud: Stop every agent)
+TEAM_STOP = "team-stop.json"
 SYNC_LOG_MAX = 1_000_000
 TIMEOUT = 15.0
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -227,6 +229,61 @@ def sync_soon(home: Path, now: float | None = None, start: Callable[[Path], bool
         return (start or _start_sync)(home)
     except Exception:  # noqa: BLE001 (a failed upload must never break the guard)
         return False
+
+
+def stop_soon(home: Path, now: float | None = None, start: Callable[[Path], bool] | None = None) -> bool:
+    """Check in the background, at most every STOP_EVERY seconds, whether the team stopped every agent in Verfy Cloud.
+    Called by the hook and the gateway on an enrolled device, so a team's stop reaches it within a minute of use."""
+    try:
+        if not load_team(home):
+            return False
+        now = time.time() if now is None else now
+        mark = home / "stop-check.json"
+        try:
+            last = float(json.loads(mark.read_text("utf-8")).get("started_at", 0))
+        except (OSError, ValueError, AttributeError, TypeError):
+            last = 0.0
+        if 0 <= now - last < STOP_EVERY:
+            return False
+        atomic_write(mark, json.dumps({"started_at": now}) + "\n", durable=False)
+        return (start or _start_stop_check)(home)
+    except Exception:  # noqa: BLE001 (the guard never breaks on this)
+        return False
+
+
+def _start_stop_check(home: Path) -> bool:
+    kw: dict = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "env": {**os.environ, "VERFY_HOME": str(home)}}
+    if os.name == "nt":
+        kw["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kw["start_new_session"] = True
+    try:
+        subprocess.Popen([sys.executable, "-m", "verfy", "team", "stop-check"], **kw)  # noqa: S603
+    except OSError:
+        return False
+    return True
+
+
+def check_stop(home: Path, transport: Transport | None = None) -> dict | None:
+    """Ask Verfy Cloud whether the team stopped every agent, and keep the answer in team-stop.json (control.py reads
+    it). An older Verfy Cloud without the endpoint leaves things as they are."""
+    try:
+        res = _client(home, transport).call("GET", "/api/v1/stop")
+    except TeamError as e:
+        if "404" in str(e):
+            return None
+        raise
+    stop = res.get("stop") if isinstance(res, dict) else None
+    path = home / TEAM_STOP
+    if isinstance(stop, dict):
+        entry = {"by": "team", **{k: str(stop[k])[:200] for k in ("at", "reason", "by_name") if stop.get(k)}}
+        atomic_write(path, json.dumps({"all": entry}, indent=2) + "\n")
+        return entry
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    return None
 
 
 def _start_sync(home: Path) -> bool:

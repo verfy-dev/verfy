@@ -1,0 +1,236 @@
+{
+ "github": {
+  "title": "GitHub",
+  "about": "Repository deletion blocked; merges, releases, branch protection, secrets, collaborators and pushes to main ask.",
+  "policy": {
+   "tools": {
+    "deny": [
+     "*delete_repository*",
+     "*delete_repo",
+     "*transfer_repository*"
+    ],
+    "ask": [
+     "*merge_pull_request*",
+     "*create_release*",
+     "*update_branch_protection*",
+     "*delete_branch*",
+     "*add_collaborator*",
+     "*create_or_update_secret*",
+     "*delete_file*",
+     "*update_repository*",
+     "*delete_workflow*"
+    ]
+   },
+   "rules": [
+    {
+     "id": "write-main",
+     "tool": "*",
+     "arg": "branch",
+     "pattern": "^(?:main|master|production|release)$",
+     "verdict": "ask",
+     "message": "Writes straight to a protected branch (GitHub pack)."
+    },
+    {
+     "id": "force-push",
+     "kind": "shell",
+     "pattern": "\\bgit\\b[^\\n;&|]*\\bpush\\b[^\\n;&|]*(?:--force\\b|--force-with-lease\\b|\\s-f\\b)",
+     "verdict": "ask",
+     "message": "Force-pushes, which rewrites history others may have (GitHub pack)."
+    },
+    {
+     "id": "gh-delete",
+     "kind": "shell",
+     "pattern": "\\bgh\\s+(?:repo\\s+(?:delete|archive|rename)|secret\\s+(?:set|delete)|release\\s+delete)\\b",
+     "verdict": "deny",
+     "message": "Deletes or rewires a repository, release or secret with gh (GitHub pack)."
+    }
+   ]
+  }
+ },
+ "databases": {
+  "title": "Databases",
+  "about": "Dropping databases, tables and collections blocked; schema changes, migrations and DELETE or UPDATE without WHERE ask.",
+  "policy": {
+   "tools": {
+    "deny": [
+     "*drop_database*",
+     "*drop_collection*",
+     "*delete_database*",
+     "*drop_table*"
+    ],
+    "ask": [
+     "*apply_migration*",
+     "*reset_branch*",
+     "*delete_branch*",
+     "*restore_backup*",
+     "*pause_project*",
+     "*delete_project*",
+     "*flush*"
+    ]
+   },
+   "rules": [
+    {
+     "id": "no-where",
+     "kind": "sql",
+     "pattern": "^\\s*(?:delete\\s+from|update)\\s+(?:(?!\\bwhere\\b)[\\s\\S])*$",
+     "flags": "i",
+     "verdict": "ask",
+     "message": "Changes every row: DELETE or UPDATE without WHERE (databases pack)."
+    },
+    {
+     "id": "ddl",
+     "kind": "sql",
+     "pattern": "^\\s*(?:alter|create|grant|revoke)\\b",
+     "flags": "i",
+     "verdict": "ask",
+     "message": "Changes the schema or who can read it (databases pack)."
+    },
+    {
+     "id": "shell-drop",
+     "kind": "shell",
+     "pattern": "\\b(?:dropdb\\b|mongo(?:sh)?\\b[^\\n]*dropDatabase|redis-cli\\b[^\\n]*\\bflush(?:all|db)\\b|psql\\b[^\\n]*\\bdrop\\s+(?:database|table|schema)\\b)",
+     "flags": "i",
+     "verdict": "deny",
+     "message": "Drops a database or wipes a store from the shell (databases pack)."
+    }
+   ]
+  }
+ },
+ "slack": {
+  "title": "Slack and chat",
+  "about": "Every post asks (also in DMs); @channel, @here and @everyone ask; archiving channels and removing people blocked.",
+  "policy": {
+   "messages": {
+    "send": "ask"
+   },
+   "tools": {
+    "deny": [
+     "*archive_channel*",
+     "*kick*",
+     "*remove_user*",
+     "*delete_channel*"
+    ],
+    "ask": [
+     "*slack*post*",
+     "*post_message*",
+     "*chat_post*",
+     "*reply_to_thread*",
+     "*send_dm*",
+     "*invite*",
+     "*set_topic*",
+     "*upload_file*"
+    ]
+   },
+   "rules": [
+    {
+     "id": "ping-all",
+     "pattern": "(?:^|\\s)(?:@channel|@here|@everyone|<!channel>|<!here>|<!everyone>)",
+     "flags": "i",
+     "verdict": "ask",
+     "message": "Pings everyone in the channel (Slack pack)."
+    }
+   ]
+  }
+ },
+ "payments": {
+  "title": "Payments",
+  "about": "Refunds, payouts, transfers, subscription changes and new prices ask; changing bank details or deleting customers blocked; unknown recipients ask.",
+  "policy": {
+   "tools": {
+    "deny": [
+     "*update_bank*",
+     "*bank_account*",
+     "*delete_customer*",
+     "*update_payout_schedule*"
+    ],
+    "ask": [
+     "*refund*",
+     "*payout*",
+     "*transfer*",
+     "*cancel_subscription*",
+     "*update_subscription*",
+     "*create_price*",
+     "*create_coupon*",
+     "*create_payment_link*",
+     "*create_invoice*",
+     "*finalize_invoice*"
+    ]
+   },
+   "payments": {
+    "ask_above": 20,
+    "unknown_recipient": "ask"
+   }
+  }
+ },
+ "email": {
+  "title": "Email",
+  "about": "Sending, forwarding and deleting mail ask; auto-forwarding rules and filters that forward are blocked.",
+  "policy": {
+   "messages": {
+    "send": "ask"
+   },
+   "tools": {
+    "deny": [
+     "*auto_forward*",
+     "*forwarding*",
+     "*set_forward*"
+    ],
+    "ask": [
+     "*send_email*",
+     "*send_mail*",
+     "*reply*",
+     "*forward*",
+     "*delete_email*",
+     "*delete_message*",
+     "*trash*",
+     "*create_filter*",
+     "*create_rule*"
+    ]
+   },
+   "rules": [
+    {
+     "id": "auto-forward",
+     "tool": "*",
+     "pattern": "\\b(?:auto[-_ ]?forward\\w*|forwarding_?address|forward_?to)\\b",
+     "flags": "i",
+     "verdict": "deny",
+     "message": "Sets up mail forwarding, a common way to keep reading someone's mail (email pack)."
+    }
+   ]
+  }
+ },
+ "cloud": {
+  "title": "Cloud and infrastructure",
+  "about": "terraform destroy, deleting Kubernetes namespaces, cloud projects, buckets and databases blocked; apply, deploy and scaling ask.",
+  "policy": {
+   "tools": {
+    "ask": [
+     "*deploy*",
+     "*scale*",
+     "*terminate*",
+     "*delete_instance*",
+     "*delete_bucket*",
+     "*delete_stack*"
+    ]
+   },
+   "rules": [
+    {
+     "id": "destroy",
+     "kind": "shell",
+     "pattern": "\\b(?:terraform|tofu|pulumi)\\s+destroy\\b|\\bkubectl\\b[^\\n;&|]*\\bdelete\\b[^\\n;&|]*(?:\\bns\\b|\\bnamespaces?\\b|--all\\b)|\\bgcloud\\s+projects\\s+delete\\b|\\baws\\s+s3\\s+rb\\b|\\baws\\s+rds\\s+delete-db|\\baz\\s+group\\s+delete\\b",
+     "flags": "i",
+     "verdict": "deny",
+     "message": "Destroys cloud infrastructure (cloud pack)."
+    },
+    {
+     "id": "apply",
+     "kind": "shell",
+     "pattern": "\\b(?:terraform|tofu)\\s+apply\\b|\\bpulumi\\s+up\\b|\\bkubectl\\s+(?:apply|delete|scale|rollout\\s+restart)\\b|\\bhelm\\s+(?:upgrade|uninstall|install)\\b|\\b(?:vercel|netlify|fly|railway)\\b[^\\n;&|]*(?:\\bdeploy\\b|--prod\\b)",
+     "flags": "i",
+     "verdict": "ask",
+     "message": "Changes live infrastructure or deploys (cloud pack)."
+    }
+   ]
+  }
+ }
+}

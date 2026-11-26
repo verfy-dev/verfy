@@ -55,6 +55,9 @@ def _guard_home(pol: dict) -> dict:
         pat = home.as_posix() + "/**"
         files = pol["files"]  # may be the defaults themselves, so it gets a new object
         pol["files"] = {**files, "sensitive": [*files["sensitive"], pat], "deny_write": [*files["deny_write"], pat]}
+    # this computer's stop and emergency access (control.py)
+    from . import control
+    control.inject(pol, home)
     # and the rules Verfy published since this release (`verfy rules update`), which only make it stricter
     from . import rulefeed
     return rulefeed.merge(pol, home)
@@ -87,11 +90,13 @@ def _hook_record(*, action: dict, decision: dict, session: str, policy: dict, ou
     receipt = led.append(agent=agent or policy.get("agent", "claude-code"), session=session, action=action, decision=decision,
                          outcome=outcome, policy_sha256=policy_digest(policy),
                          include_args=bool((policy.get("receipts") or {}).get("include_args", False)),
+                         fields=(policy.get("receipts") or {}).get("field_hashes") is True,
                          sandbox=_sandboxes().running_in() or ("claude-code" if not agent and _sandboxes().effective(Path.cwd(), Path.home())["enabled"] is True else None))
     home = verfy_home()
     if (home / "team.json").exists():  # the team module (and its HTTP client) only for an enrolled device
         from . import team as teamlib
         teamlib.sync_soon(home)
+        teamlib.stop_soon(home)
     from . import rulefeed
     rulefeed.refresh_soon(home)
     return receipt
