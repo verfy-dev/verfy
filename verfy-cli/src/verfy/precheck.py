@@ -654,7 +654,7 @@ def _resolvable(p: str, here: str | None) -> bool:
     return "$" not in p and "`" not in p and (here is not None or p.startswith(("/", "~")))
 
 
-def _verfy_secret(s: dict, ctx: "_Ctx", here: str | None) -> dict | None:
+def _verfy_key_file(s: dict, ctx: "_Ctx", here: str | None) -> dict | None:
     """A finding when one command reads, copies or looks for Verfy's signing key or device token."""
     parts = [x for t in [s["name"], *s["args"], *s["inp"], *s["out"]] for x in (t, *t.split("=")[1:]) if x]
     for p in parts:
@@ -931,9 +931,9 @@ def check_shell(cmd: str, ctx: _Ctx, again: bool = True) -> tuple[list[dict], bo
 
     for s in segs:
         n, a = s["name"], s["args"]
-        secret = _verfy_secret(s, ctx, cwd if s["depth"] == 0 else ctx.ws)
-        if secret:
-            out.append(secret)
+        key_hit = _verfy_key_file(s, ctx, cwd if s["depth"] == 0 else ctx.ws)
+        if key_hit:
+            out.append(key_hit)
         if s["depth"] == 0 and n == "cd":
             ops = operands(a)
             if not ops:
