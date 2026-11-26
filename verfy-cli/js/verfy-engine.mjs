@@ -811,9 +811,27 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     return null;
   }
 
-  function selfFinding(hit, p) {
+  // with shell.allow set, a program not on it needs a person (VFY-SH-042): an allowlist, not a denylist
+  function offAllowlist(cmd, pol) {
+    var allow = (((pol.shell || {}).allow) || []).filter(function (x) { return typeof x === "string"; }).map(function (x) { return x.toLowerCase(); });
+    if (!allow.length) return [];
+    var seen = [];
+    parseShell(cmd).forEach(function (s) {
+      var base = String(s.name || "").replace(/\\/g, "/").split("/").pop().toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/, "");
+      if (base && allow.indexOf(base) < 0 && seen.indexOf(base) < 0 && !allow.some(function (p) { return p.indexOf("*") >= 0 && nameMatch(p, base); })) seen.push(base);
+    });
+    return seen.slice(0, 3).map(function (b) { return F("VFY-SH-042", "ask", "`" + b + "` is not on shell.allow, so a person approves it."); });
+  }
+  function selfFinding(hit, p, removes) {
     if (hit[0] === "deny") return F("VFY-SELF-001", "deny", "Changes " + p + ", which Verfy relies on to guard this agent (`" + hit[1] + "`). Make this change yourself if you meant it.");
+    if (removes) return F("VFY-SELF-002", "deny", "Takes Verfy out of the MCP config " + p + ", so a server would no longer go through the gateway. Make this change yourself if you meant it.");
     return F("VFY-SELF-002", "ask", "Changes the MCP config " + p + ", which could take a server out from behind the Verfy gateway.");
+  }
+  // an edit whose old text names Verfy and whose new text does not: it takes Verfy out of the file
+  function removesVerfy(args) {
+    var pairs = [[args.old_string, args.new_string]];
+    if (Array.isArray(args.edits)) args.edits.forEach(function (e) { if (isObj(e)) pairs.push([e.old_string, e.new_string]); });
+    return pairs.some(function (pr) { return typeof pr[0] === "string" && typeof pr[1] === "string" && pr[0].toLowerCase().indexOf("verfy") >= 0 && pr[1].toLowerCase().indexOf("verfy") < 0; });
   }
   function verfyCommand(s) {
     var n = s.name.toLowerCase().replace(/\.exe$/, ""), a = s.args, py = /^python[0-9.]*$|^py$/.test(n);
@@ -1220,6 +1238,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
         var cmdText = shellText(args);
         var res = checkShell(cmdText, ctx);
         out = out.concat(res[0]); network = res[1];
+        out = out.concat(offAllowlist(cmdText, pol));
         touchy = pushes(cmdText) || res[0].some(function (f) { return f.rule === "VFY-SH-007" || f.rule === "VFY-SH-008" || f.rule === "VFY-SH-015"; });
       } else if (kind === "sql") {
         var qk = argKeys.filter(function (k) { return has(PATTERNS.sql_keys, k.toLowerCase()) && typeof args[k] === "string"; })[0];
@@ -1241,7 +1260,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
             return;
           }
           var mine = ctx.guardsVerfy(abs);
-          if (mine) { out.push(selfFinding(mine, p)); return; }
+          if (mine) { out.push(selfFinding(mine, p, removesVerfy(args))); return; }
           h = ctx.protected_(abs);
           if (h) { out.push(F("VFY-FS-001", "deny", "Changes " + p + ", which is protected (`" + h + "`).")); return; }
           if (kind === "file_delete" && ctx.catastrophic(abs)) { out.push(F("VFY-FS-004", "deny", "Deletes " + p + ", which would wipe the system, the home folder or the whole project.")); return; }

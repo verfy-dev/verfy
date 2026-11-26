@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.27.1
+    rev: cli-v0.28.0
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.27.1" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.28.0" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -528,13 +528,44 @@ A web page or a tool's answer can carry instructions for the agent. Once a sessi
 { "session": { "after_outside_text": "hooks", "include_network": false } }
 ```
 
-- `"hooks"` (the default since 0.27.1): on in agents with hooks, where the agent puts the question to you. The MCP gateway leaves it alone, because nobody may be there to answer (`on_ask` is `deny` by default).
+- `"hooks"` (the default since 0.28.0): on in agents with hooks, where the agent puts the question to you. The MCP gateway leaves it alone, because nobody may be there to answer (`on_ask` is `deny` by default).
 - `"ask"`: also in the MCP gateway, where a server's answer counts as outside text. `"deny"` refuses instead of asking; the `strict` template sets it. `"off"` turns it off.
 - `"include_network": true` makes every request to a site not on `network.allow` wait too, not only uploads and pushes.
 
 ## Messages wait for a person
 
-A tool that sends a message (an email, a chat or channel post, with a recipient and a body) gets `ask`, rule VFY-MSG-001, since 0.27.1: it goes out under your name and cannot be taken back. Change it with `{ "messages": { "send": "allow" } }` (or `"deny"`), or list a tool you trust under `tools.trust`. In the MCP gateway, `ask` follows `on_ask`: with the default `deny` the message is refused and the reason says why; `"on_ask": "elicit"` asks you in clients that support it, `"team"` asks your team in Verfy Cloud.
+A tool that sends a message (an email, a chat or channel post, with a recipient and a body) gets `ask`, rule VFY-MSG-001, since 0.28.0: it goes out under your name and cannot be taken back. Change it with `{ "messages": { "send": "allow" } }` (or `"deny"`), or list a tool you trust under `tools.trust`. In the MCP gateway, `ask` follows `on_ask`: with the default `deny` the message is refused and the reason says why; `"on_ask": "elicit"` asks you in clients that support it, `"team"` asks your team in Verfy Cloud.
+
+## Packages a runner downloads
+
+`npx`, `bunx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `uvx`, `uv tool run` and `pipx run` download a package and run it in
+one step. Since 0.28.0 the first time a package appears, a person is asked (VFY-AD-004); after that it is learned, like a
+new program. A local bin of the project (`node_modules/.bin`) is not asked about, and neither is a package you list:
+
+```json
+{ "packages": { "allow": ["npm:prettier", "pypi:ruff", "create-*"] } }
+```
+
+`"adaptive": {"packages": "off"}` switches it off. `verfy adaptive` lists the packages learned; `verfy adaptive forget pkg:npm:NAME` forgets one.
+
+## Allowlist mode
+
+Rules name what is dangerous; an allowlist names what is fine. With `shell.allow`, any program not on the list needs a
+person (VFY-SH-042), and the rules still apply to the programs on it:
+
+```json
+{ "shell": { "allow": ["git", "npm", "node", "python", "pytest", "py*"] } }
+```
+
+`verfy policy use allowlist` starts from a list of common development tools, with plain requests after outside text and
+packages asked about too.
+
+## Is this the Verfy that was published?
+
+`verfy self-verify` checks the installed copy: every file still has the hash pip recorded, the wheel PyPI serves has the
+hash PyPI lists, every installed file matches that wheel, and PyPI holds a provenance attestation for it from GitHub,
+repository verfy-dev/verfy, workflow publish.yml. It prints the `pypi-attestations` command that also checks the
+attestation's Sigstore signature. A standalone build is checked with its release's SHA256SUMS.
 
 ## What is on here
 
@@ -545,7 +576,7 @@ A tool that sends a message (an email, a chat or channel post, with a recipient 
 Start from a template, or write your own:
 
 ```bash
-verfy policy templates            # strict, read-only, ci
+verfy policy templates            # strict, read-only, ci, allowlist
 verfy policy show read-only       # print it
 verfy policy use read-only        # ~/.verfy/policy.json (--project: ./verfy.policy.json, --force replaces, a backup is kept)
 verfy init --template ci          # same, while setting up
@@ -554,6 +585,7 @@ verfy init --template ci          # same, while setting up
 - **strict**: anything risky is denied instead of asked, unknown hosts are blocked (package registries and GitHub are allowed), errors deny, new MCP tools are denied until approved.
 - **read-only**: file edits (`Write`, `Edit`, ...) and write-style MCP tools (`*create*`, `*delete*`, `*push*`, ...) are denied; every shell command needs approval. Tool names are matched by pattern, so check `verfy policy show read-only` against your servers.
 - **ci**: nobody is watching, so anything that would ask is denied; same network limits as strict.
+- **allowlist**: only the programs on `shell.allow` run without a person (common development tools to start with); plain requests after outside text and new packages are asked about.
 
 The agent cannot change the policy itself: editing it is denied, and so is `verfy policy use` when the agent runs it.
 

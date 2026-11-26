@@ -510,7 +510,7 @@ def run_pre_tool_use(payload: Any, *, get_policy: Callable[[str | None], dict], 
     if home is not None:
         # what no rule names: escalation in a session that already tried something blocked, and programs or hosts this
         # machine has never seen (adaptive.py)
-        checked = adaptive.apply(home, session, checked, policy)
+        checked = adaptive.apply(home, session, checked, policy, cwd=cwd)
     verdicts = {d["verdict"] for _, d in checked}
     verdict = "deny" if "deny" in verdicts else ("ask" if "ask" in verdicts else "allow")
     status = {"allow": "pending", "ask": "asked", "deny": "blocked"}[verdict]

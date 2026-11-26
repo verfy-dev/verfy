@@ -24,6 +24,8 @@ def summary(pol: dict[str, Any]) -> list[tuple[bool, str]]:
         (script_settings(pol)["read"] == "on", "a script the agent runs is read first, line by line (scripts.read)"),
         (ad["escalate"] == "on", "a session that tried something blocked needs a person for anything risky (adaptive.escalate)"),
         (ad["novelty"] == "ask", "a program or host never used on this machine is asked about once (adaptive.novelty)"),
+        (ad["packages"] == "ask", "a package npx, uvx or pipx would download and run is asked about the first time (adaptive.packages)"),
+        (bool((pol.get("shell") or {}).get("allow")), "only programs on shell.allow run without a person: an allowlist, not only rules (shell.allow)"),
         (sends != "allow", "a message (email, chat, post) needs a person" + (" and is denied" if sends == "deny" else "") + " (messages.send)"),
         (after != "off", "after outside text, deletes, messages, payments, uploads and git push need a person" + where.get(after, "")),
         (session.get("include_network") is True, "after outside text, any request to a site not on network.allow needs a person too (session.include_network)"),

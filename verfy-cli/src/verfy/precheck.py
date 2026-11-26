@@ -675,11 +675,34 @@ def _verfy_secret(s: dict, ctx: "_Ctx", here: str | None) -> dict | None:
     return None
 
 
-def _self_finding(hit: tuple[str, str], p: str) -> dict:
+def _self_finding(hit: tuple[str, str], p: str, removes: bool = False) -> dict:
     verdict, pat = hit
     if verdict == "deny":
         return _f("VFY-SELF-001", "deny", f"Changes {p}, which Verfy relies on to guard this agent (`{pat}`). Make this change yourself if you meant it.")
+    if removes:
+        return _f("VFY-SELF-002", "deny", f"Takes Verfy out of the MCP config {p}, so a server would no longer go through the gateway. Make this change yourself if you meant it.")
     return _f("VFY-SELF-002", "ask", f"Changes the MCP config {p}, which could take a server out from behind the Verfy gateway.")
+
+
+def _removes_verfy(args: dict) -> bool:
+    """An edit whose old text names Verfy and whose new text does not: it takes Verfy out of the file."""
+    pairs = [(args.get("old_string"), args.get("new_string"))]
+    if isinstance(args.get("edits"), list):
+        pairs += [(e.get("old_string"), e.get("new_string")) for e in args["edits"] if isinstance(e, dict)]
+    return any(isinstance(o, str) and isinstance(n, str) and "verfy" in o.lower() and "verfy" not in n.lower() for o, n in pairs)
+
+
+def _off_allowlist(cmd: str, pol: dict) -> list[dict]:
+    """With ``shell.allow`` set, a program not on it needs a person (VFY-SH-042): an allowlist, not a denylist."""
+    allow = {str(x).lower() for x in ((pol.get("shell") or {}).get("allow") or []) if isinstance(x, str)}
+    if not allow:
+        return []
+    seen: list[str] = []
+    for s in parse_shell(cmd):
+        base = re.sub(r"\.(?:exe|cmd|bat|ps1)$", "", str(s.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1].lower())
+        if base and base not in allow and base not in seen and not any(name_match(p, base) for p in allow if "*" in p):
+            seen.append(base)
+    return [_f("VFY-SH-042", "ask", f"`{b}` is not on shell.allow, so a person approves it.") for b in seen[:3]]
 
 
 def _verfy_command(s: dict) -> dict | None:
@@ -1163,6 +1186,7 @@ def check(action: dict, policy: dict | None = None, context: dict | None = None)
             cmd = _shell_text(args)
             fs, network = check_shell(cmd, ctx)
             out.extend(fs)
+            out.extend(_off_allowlist(cmd, pol))
             touchy = _pushes(cmd) or any(f["rule"] in ("VFY-SH-007", "VFY-SH-008", "VFY-SH-015") for f in fs)
         elif kind == "sql":
             sql = next(args[k] for k in args if str(k).lower() in PATTERNS["sql_keys"] and isinstance(args[k], str))
@@ -1186,7 +1210,7 @@ def check(action: dict, policy: dict | None = None, context: dict | None = None)
                     continue
                 own = ctx.guards_verfy(abs_)
                 if own:
-                    out.append(_self_finding(own, p))
+                    out.append(_self_finding(own, p, _removes_verfy(args)))
                     continue
                 hit = ctx.protected(abs_)
                 if hit:

@@ -353,10 +353,24 @@
   ],
   [
    "VFY-SELF-005",
+   "deny",
+   "(?:\\b(?:python[0-9.]*|py|node|deno|bun|perl|ruby|php|pwsh|powershell)\\b|\\bgit\\s+(?:rm|mv)\\b|\\b(?:Set-Content|Add-Content|Out-File|Clear-Content|Remove-Item|Move-Item|Copy-Item|New-Item|Rename-Item|del|erase|rd|rmdir)\\b)(?=[^\\n]*?(?:\\.claude[\\/]+settings(?:\\.local)?\\.json|\\.cursor[\\/]+hooks\\.json|\\.codex[\\/]+hooks\\.json|\\.gemini[\\/]+settings\\.json|\\.copilot[\\/]+hooks\\b|\\.github[\\/]+hooks\\b|windsurf[\\/]+hooks\\.json|\\.devin[\\/]+(?:hooks\\.v1|config(?:\\.local)?)\\.json|[\\/]devin[\\/]+config\\.json|managed-settings(?:\\.json|\\.d)|[\\/]cursor[\\/]+hooks\\.json|\\bverfy\\.lock\\b|\\bverfy\\.policy\\.json\\b|[\\/]\\.verfy(?:[\\/]|\\b)|[\\/]Programs[\\/]+verfy\\b|\\.local[\\/]+share[\\/]+verfy\\b))(?=[^\\n]*?(?:['\\\"][wa]\\+?['\\\"]|\\bwrite(?:_text|_bytes|FileSync|File|lines)?\\s*\\(|\\bappendFile(?:Sync)?\\b|\\bunlink(?:Sync)?\\b|\\b(?:os\\.)?remove\\s*\\(|\\brename(?:Sync)?\\b|\\.replace\\s*\\(|\\btruncate\\b|\\brmSync\\b|\\bshutil\\b|\\bjson\\.dump\\b|\\bos\\.system\\b|\\bsubprocess\\b|\\bchild_process\\b|\\bexecSync\\b|\\bSet-Content\\b|\\bAdd-Content\\b|\\bOut-File\\b|\\bRemove-Item\\b|\\bClear-Content\\b|>\\s*\\S))",
+   "i",
+   "Writes, moves or deletes a file Verfy relies on (hook settings, verfy.lock, the policy or the Verfy install) from inline code. Make this change yourself if you meant it."
+  ],
+  [
+   "VFY-SELF-005",
    "ask",
    "(?:\\b(?:python[0-9.]*|py|node|deno|bun|perl|ruby|php|pwsh|powershell)\\b|\\bgit\\s+(?:rm|mv)\\b|\\b(?:Set-Content|Add-Content|Out-File|Clear-Content|Remove-Item|Move-Item|Copy-Item|New-Item|Rename-Item|del|erase|rd|rmdir)\\b)[^\\n]*?(?:\\.claude[\\/]+settings(?:\\.local)?\\.json|\\.cursor[\\/]+hooks\\.json|\\.codex[\\/]+hooks\\.json|\\.gemini[\\/]+settings\\.json|\\.copilot[\\/]+hooks\\b|\\.github[\\/]+hooks\\b|windsurf[\\/]+hooks\\.json|\\.devin[\\/]+(?:hooks\\.v1|config(?:\\.local)?)\\.json|[\\/]devin[\\/]+config\\.json|managed-settings(?:\\.json|\\.d)|[\\/]cursor[\\/]+hooks\\.json|\\bverfy\\.lock\\b|\\bverfy\\.policy\\.json\\b|[\\/]\\.verfy(?:[\\/]|\\b)|[\\/]Programs[\\/]+verfy\\b|\\.local[\\/]+share[\\/]+verfy\\b)",
    "i",
    "Touches a file Verfy relies on (hook settings, verfy.lock, the policy or the Verfy install) in a way Verfy cannot follow."
+  ],
+  [
+   "VFY-SELF-005",
+   "ask",
+   "(?:\\b(?:python[0-9.]*|py|node|deno|bun|perl|ruby|php|pwsh|powershell)\\b|\\bgit\\s+(?:rm|mv)\\b|\\b(?:Set-Content|Add-Content|Out-File|Clear-Content|Remove-Item|Move-Item|Copy-Item|New-Item|Rename-Item|del|erase|rd|rmdir)\\b)[^\\n]*?(?:\\.mcp\\.json\\b|\\.claude\\.json\\b|\\.cursor[\\\\/]+mcp\\.json|\\.vscode[\\\\/]+mcp\\.json|claude_desktop_config\\.json|windsurf[\\\\/]+mcp_config\\.json|\\.codex[\\\\/]+config\\.toml|\\.copilot[\\\\/]+mcp-config\\.json)",
+   "i",
+   "Touches an MCP config from inline code, which could take a server out from behind the Verfy gateway."
   ],
   [
    "VFY-SH-005",

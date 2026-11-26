@@ -2,6 +2,15 @@
 
 What changed in the Verfy CLI (`pip install verfy`) and the website. Newest first. Every CLI version is on [PyPI](https://pypi.org/project/verfy/#history) and as standalone builds on the [releases page](https://github.com/verfy-dev/verfy-releases/releases).
 
+## 0.28.0 (2026-11-26)
+
+- **Inline code can no longer switch Verfy off with a question you might approve.** `python -c`, `node -e` and other one-liners that write, move or delete a hook settings file, `verfy.lock`, the policy or the Verfy install are denied (VFY-SELF-005, was ask); one that only names such a file still asks. Inline code that names an MCP config (`.mcp.json`, `.codex/config.toml`, Claude Desktop's config, ...) now asks; before, a one-liner writing `~/.codex/config.toml` through `pathlib` was allowed. An edit that takes Verfy out of an MCP config is denied (VFY-SELF-002); other edits there still ask.
+- **A package a runner downloads is asked about the first time** (VFY-AD-004): `npx`, `bunx`, `npm exec`, `pnpm dlx`, `yarn dlx`, `uvx`, `uv tool run`, `pipx run`. A local bin of the project and `packages.allow` are not asked about; then the package is learned. `"adaptive": {"packages": "off"}` switches it off.
+- **Allowlist mode**: with `shell.allow`, a program not on the list needs a person (VFY-SH-042). New template `allowlist`.
+- **`verfy self-verify`**: checks the installed copy against pip's record, the wheel on PyPI and its provenance attestation from GitHub verfy-dev/verfy.
+- **The sandbox closes more**: browser profiles (Chrome, Chromium, Brave, Edge, Firefox; macOS and Linux), the macOS keychains and cookies, the GitHub CLI token, `~/.git-credentials`, `~/.pypirc`, `~/.azure`, `~/.password-store`, `~/.terraform.d` and the 1Password CLI folder are not readable inside `verfy run --sandbox`.
+- `verfy policy status` lists the package and allowlist settings.
+
 ## 0.27.1 (2026-11-26)
 
 - **A false alarm in the scanner, found by Verfy's own weekly research.** `@azure-devops/mcp` 2.9.0 and 2.11.0 describe a filter that "neither include[s] nor exclude[s] secrets"; the scanner read "include ... secrets" as a request for sensitive data and rated the tool critical (VFY-SCAN-002). A match right after "neither" is now skipped, like one after "do not" or "never". Asking for secrets is still caught. `tests/test_scan_negation.py`.

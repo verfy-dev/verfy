@@ -50,6 +50,12 @@ def load_policy(source: str | os.PathLike | dict | None = None, *, workspace: st
         raise ValueError("fail_mode must be ask or deny (Verfy never fails open)")
     if (pol.get("session") or {}).get("after_outside_text") not in ("off", "hooks", "ask", "deny"):
         raise ValueError("session.after_outside_text must be off, hooks, ask or deny")
+    shell_allow = (pol.get("shell") or {}).get("allow", []) if isinstance(pol.get("shell", {}), dict) else None
+    if not isinstance(shell_allow, list) or not all(isinstance(x, str) for x in shell_allow):
+        raise ValueError("shell.allow must be a list of program names")
+    pkg_allow = (pol.get("packages") or {}).get("allow", []) if isinstance(pol.get("packages", {}), dict) else None
+    if not isinstance(pkg_allow, list) or not all(isinstance(x, str) for x in pkg_allow):
+        raise ValueError("packages.allow must be a list of package names")
     if (pol.get("session") or {}).get("include_network", False) not in (True, False):
         raise ValueError("session.include_network must be true or false")
     # read with the default "ask" where it is used, and left out of the default policy (see prompt_secrets below)
@@ -124,6 +130,8 @@ def tighten(base: dict, project: Any) -> dict:
             mine["escalate"] = "on"
         if adaptive.get("novelty") == "ask":
             mine["novelty"] = "ask"
+        if adaptive.get("packages") == "ask":
+            mine["packages"] = "ask"
         w = adaptive.get("warmup")
         if isinstance(w, int) and not isinstance(w, bool) and 0 <= w < mine.get("warmup", 50):
             mine["warmup"] = w

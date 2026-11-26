@@ -126,5 +126,55 @@
     "include_args": false
    }
   }
+ },
+ "allowlist": {
+  "description": "Only the programs listed under shell.allow run without a person; any other program, and any package npx or uvx would download, is asked about. Edit the list for your project.",
+  "policy": {
+   "shell": {
+    "allow": [
+     "git",
+     "ls",
+     "cat",
+     "head",
+     "tail",
+     "grep",
+     "rg",
+     "find",
+     "wc",
+     "sort",
+     "diff",
+     "echo",
+     "pwd",
+     "cd",
+     "mkdir",
+     "touch",
+     "python",
+     "python3",
+     "pip",
+     "pytest",
+     "uv",
+     "node",
+     "npm",
+     "pnpm",
+     "yarn",
+     "tsc",
+     "eslint",
+     "prettier",
+     "vitest",
+     "jest",
+     "go",
+     "cargo",
+     "make",
+     "docker"
+    ]
+   },
+   "session": {
+    "after_outside_text": "ask",
+    "include_network": true
+   },
+   "adaptive": {
+    "packages": "ask"
+   }
+  }
  }
 }

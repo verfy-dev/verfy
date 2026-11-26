@@ -1055,6 +1055,9 @@ def cmd_adaptive(args) -> int:
         print("  programs  " + ", ".join(st["programs"][:20]) + (" …" if len(st["programs"]) > 20 else ""))
     if st["hosts"]:
         print("  hosts     " + ", ".join(st["hosts"][:20]) + (" …" if len(st["hosts"]) > 20 else ""))
+    print(f"Packages    {'asks the first time' if st['packages_mode'] == 'ask' else 'off'}   (npx, uvx, pipx run, dlx; {len(st['packages'])} learned)")
+    if st["packages"]:
+        print("  packages  " + ", ".join(st["packages"][:20]) + (" …" if len(st["packages"]) > 20 else ""))
     if st["escalated"]:
         print("Sessions under escalation (last hour):")
         for sid, score in st["escalated"].items():
@@ -2216,6 +2219,32 @@ def _hook_state(path: Path, agent: str) -> str:
     return "on" if not missing or hooks.COMMANDS[agent] in json.dumps(current) else "off"
 
 
+def cmd_self_verify(args) -> int:
+    from . import selfverify
+    found = selfverify.installed_files()
+    if found is None:
+        print("This verfy was not installed by pip, so there is no install record to check. A standalone build is checked with")
+        print("the SHA256SUMS file of its release: https://github.com/verfy-dev/verfy-releases/releases")
+        return 2
+    version, record, contents = found
+    if version != __version__:
+        print(f"The verfy running now ({__version__}) is not the one pip installed ({version}); run the installed one to check it.")
+        return 2
+    try:
+        rep = selfverify.check(version, record, contents)
+    except (OSError, ValueError, KeyError, StopIteration) as e:
+        print(f"Could not check against PyPI: {e}")
+        return 2
+    print(f"verfy {version}, installed in {_short(Path(__file__).parent)}")
+    for ok, text in rep["rows"]:
+        print(f"  {'ok  ' if ok else 'FAIL'}  {text}")
+    print(("VERIFIED" if rep["ok"] else "NOT VERIFIED") + f"  this is{'' if rep['ok'] else ' not'} the verfy {selfverify.REPOSITORY} published")
+    if rep.get("wheel"):
+        print("The attestation's Sigstore signature was checked by PyPI when it accepted the upload. To check it here as well:")
+        print(f"  pipx run pypi-attestations verify pypi --repository https://github.com/{selfverify.REPOSITORY} pypi:{rep['wheel']}")
+    return 0 if rep["ok"] else 1
+
+
 def cmd_doctor(args) -> int:
     """Check this machine's setup without changing anything. Exit 1 when an agent is here but Verfy is not guarding it."""
     home = verfy_home()
@@ -2542,7 +2571,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", help="device name shown in the dashboard (default: this computer's name)")
     p.set_defaults(fn=cmd_init)
 
-    p = sub.add_parser("policy", help="ready-made policies: strict, read-only, ci")
+    p = sub.add_parser("policy", help="ready-made policies: strict, read-only, ci, allowlist")
     pol = p.add_subparsers(dest="policy_cmd", metavar="subcommand", required=True)
     x = pol.add_parser("templates", help="list the templates")
     x.set_defaults(fn=cmd_policy_templates)
@@ -2710,7 +2739,7 @@ def build_parser() -> argparse.ArgumentParser:
     ad = p.add_subparsers(dest="adaptive_cmd", metavar="action")
     x = ad.add_parser("status", help="settings, what was learned, and sessions under escalation (the default)")
     x.add_argument("--json", action="store_true")
-    x = ad.add_parser("forget", help="forget a program (prog:NAME), a host (host:NAME), a session (session:ID) or all")
+    x = ad.add_parser("forget", help="forget a program (prog:NAME), a host (host:NAME), a package (pkg:npm:NAME), a session (session:ID) or all")
     x.add_argument("what")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_adaptive, adaptive_cmd="status")
@@ -2834,6 +2863,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lock", help="lock file to look at (default ./verfy.lock)")
     p.add_argument("--live", action="store_true", help="also run each installed hook as its agent does, with a harmless and a destructive call")
     p.set_defaults(fn=cmd_doctor)
+
+    p = sub.add_parser("self-verify", help="check that this verfy is the one verfy-dev/verfy published: install record, PyPI wheel, provenance attestation")
+    p.set_defaults(fn=cmd_self_verify)
 
     p = sub.add_parser("posture", help="risky settings in each agent's own config (bypass modes, hooks switched off, no sandbox); --fix shows the edits that take them away")
     p.add_argument("--json", action="store_true")

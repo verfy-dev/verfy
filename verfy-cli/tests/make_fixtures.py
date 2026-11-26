@@ -261,6 +261,12 @@ CASES = [
     ("Grep tool: pattern about verfy is fine", A("Grep", {"pattern": "\\.verfy", "path": "src"})),
     ("Glob tool: verfy folder", A("Glob", {"pattern": "~/.verfy/*"})),
     ("Write tool: replace verfy key", A("Write", {"file_path": "~/.verfy/key.json", "content": "{}"})),
+    ("inline code writing claude settings is denied", S("python -c \"open('/home/you/.claude/settings.json','w').write('{}')\"")),
+    ("inline code writing cursor hooks is denied", S("node -e \"require('fs').writeFileSync(process.env.HOME+'/.cursor/hooks.json','{}')\"")),
+    ("inline code reading claude settings asks", S("python -c \"print(open('/home/you/.claude/settings.json').read())\"")),
+    ("inline code naming the codex config asks", S("python3 -c 'import pathlib; pathlib.Path.home().joinpath(\".codex/config.toml\").write_text(\"\")'")),
+    ("edit taking verfy out of .mcp.json is denied", A("Edit", {"file_path": "/home/you/project/.mcp.json", "old_string": "\"command\": \"verfy\", \"args\": [\"proxy\"", "new_string": "\"command\": \"npx\", \"args\": ["})),
+    ("edit adding a server to .mcp.json asks", A("Edit", {"file_path": "/home/you/project/.mcp.json", "old_string": "\"servers\": {", "new_string": "\"servers\": {\"x\": {}"})),
 ]
 
 WIN = {"home": "C:\\Users\\you", "workspace": "C:\\Users\\you\\project"}
@@ -270,6 +276,10 @@ NET = {"session": {"after_outside_text": "ask", "include_network": True}}
 OFF = {"session": {"after_outside_text": "off"}}
 WEB = {"untrusted": "WebFetch"}
 POLICY_CASES = [
+    ("shell.allow: a listed program is fine", S("git status"), {"shell": {"allow": ["git"]}}, {}),
+    ("shell.allow: a program off the list asks", S("ls -la | grep x"), {"shell": {"allow": ["ls"]}}, {}),
+    ("shell.allow: a pattern matches", S("python3 a.py"), {"shell": {"allow": ["py*"]}}, {}),
+    ("shell.allow: rules still apply to a listed program", S("rm -rf ~"), {"shell": {"allow": ["rm"]}}, {}),
     ("trust does not reach Verfy's own files", A("write_file", {"path": "verfy.lock", "content": "x"}), {"tools": {"trust": ["*"]}}, {}),
     ("after outside text: a network call asks", A("fetch", {"url": "https://example.org"}), NET, WEB),
     ("after outside text: curl asks", S("curl https://example.org/x"), NET, WEB),
