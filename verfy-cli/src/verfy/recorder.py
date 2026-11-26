@@ -56,6 +56,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
+from . import identity
 from . import limits as limitslib
 from . import team as teamlib
 from .fileio import FileLock
@@ -243,7 +244,8 @@ class Recorder:
 
     def __init__(self, agent: str | None = None, *, home: str | os.PathLike | None = None, session: str | None = None,
                  include_args: bool = False, upload: str = "auto", on_error: str = "log", rules: list | None = None,
-                 policy_rules: bool = True, on_ask: str | Callable[[dict], Any] = "deny", approval_timeout: int = 120):
+                 policy_rules: bool = True, on_ask: str | Callable[[dict], Any] = "deny", approval_timeout: int = 120,
+                 field_hashes: bool = False, key: str | os.PathLike | None = None, delegation: dict | None = None):
         self.agent = _text("agent", agent if agent is not None else os.environ.get("VERFY_AGENT") or "agent", required=True)
         self.session = _text("session", session if session is not None else "sess_" + secrets.token_hex(8), required=True)
         if upload not in UPLOAD_MODES:
@@ -252,10 +254,17 @@ class Recorder:
             raise RecordError("on_error must be 'log' or 'raise'")
         self.home = Path(home) if home is not None else Path(os.environ.get("VERFY_HOME") or Path.home() / ".verfy")
         self.include_args = bool(include_args)
+        self.field_hashes = bool(field_hashes)
         self.upload = upload
         self.on_error = on_error
-        self.key = _load_or_create_key(self.home / "key.json")
-        self.ledger_path = self.home / "ledger.jsonl"
+        # an agent key from `verfy agent create` signs its own ledger next to it; the owner's key signs the rest
+        kp = Path(key).expanduser() if key is not None else None
+        self.key = Key.load(kp) if kp is not None else _load_or_create_key(self.home / "key.json")
+        self.ledger_path = (kp.parent / "ledger.jsonl") if kp is not None else self.home / "ledger.jsonl"
+        if delegation is not None:
+            if not isinstance(delegation, dict) or delegation.get("to_kid") != self.key.kid:
+                raise RecordError("the hand-over is for another key")
+        self.delegation = delegation
         self._ledger = Ledger(self.ledger_path, self.key)
         self._sync_lock = threading.Lock()
         self.last: dict | None = None
@@ -264,7 +273,7 @@ class Recorder:
         if isinstance(approval_timeout, bool) or not isinstance(approval_timeout, int) or not 10 <= approval_timeout <= 900:
             raise RecordError("approval_timeout must be a whole number of seconds from 10 to 900")
         try:
-            self.rules = limitslib.load_rules(rules) + (limitslib.rules_from_policies(self.home) if policy_rules else [])
+            self.rules = limitslib.load_rules([*(rules or []), *((delegation or {}).get("rules") or [])]) + (limitslib.rules_from_policies(self.home) if policy_rules else [])
         except limitslib.RuleError as e:
             raise RecordError(str(e)) from None
         self.rules_sha = limitslib.rules_digest(self.rules)
@@ -296,6 +305,11 @@ class Recorder:
 
         def first(totals: dict[str, float]):
             res = limitslib.evaluate(self.rules, action=action, system=system, kind=kind, args=args, spent=totals, agent=self.agent)
+            why, rule = self._stopped(), "VFY-STOP-001"
+            if not why and self.delegation:  # outside the hand-over this agent works under
+                why, rule = identity.allows(self.delegation, action), "VFY-DLG-001"
+            if why:  # `verfy stop`, the team's stop, or outside the hand-over: nothing runs
+                res = {**res, "verdict": "deny", "findings": [{"rule": rule, "verdict": "deny", "message": why}, *res["findings"]]}
             return res, (res["amounts"] if res["verdict"] == "allow" else None)
 
         res = self._totals.decide(first)
@@ -319,6 +333,30 @@ class Recorder:
             self._refuse(action, system=system, kind=kind, args=args, session=session, verdict="deny", findings=now["findings"],
                          status="blocked", why="; ".join(f["message"] for f in now["findings"] if f["verdict"] == "deny"))
         return {"verdict": "ask", "findings": now["findings"], "approved_by": str(approver)[:APPROVER_MAX]}
+
+    def delegate(self, *, to_public: str | bytes, to_agent: str, rules: list | None = None, tools: list[str] | None = None,
+                 minutes: int = 60) -> dict:
+        """Hand work to another agent: a signed hand-over to its key, recorded here as a receipt, that it passes to
+        ``Recorder(delegation=...)``. Its receipts then name this hand-over, and it may only do less than this agent."""
+        from .receipts import public_from
+        pub = public_from(to_public)
+        limitslib.load_rules(rules or [])
+        receipt = self._write("delegate", system="verfy", kind="other", args={"to_agent": to_agent, "to_kid": identity.key_id(pub)},
+                              result=None, status="ok", session=None, approved_by=None, include_args=True)
+        return identity.delegate(self.key, to_public=pub, to_agent=to_agent, rules=rules, tools=tools, minutes=minutes,
+                                 parent_receipt=receipt["id"], parent_delegation=self.delegation)
+
+    def _stopped(self) -> str | None:
+        from .control import state
+        from .precheck import stopped
+        stop = state(self.home)["stop"] or {}
+        try:
+            team = json.loads((self.home / "team" / "policy.json").read_text("utf-8")).get("stop")
+        except (OSError, ValueError, AttributeError):
+            team = None
+        if isinstance(team, dict) and team.get("all") and not stop.get("all"):
+            stop = {**stop, "all": team["all"]}
+        return stopped(stop, self.agent) if stop else None
 
     def _ask(self, action: str, *, system: str, kind: str, args: Any, findings: list[dict]) -> tuple[str | None, str]:
         """Who approved the action, or None and why not."""
@@ -430,7 +468,8 @@ class Recorder:
                               "(only their hash), or pass fewer")
         outcome = {"status": status, "result_sha256": None if result is None else self._ledger.hash(result)}
         fields = dict(agent=self.agent, session=session, action={"server": system, "tool": action, "arguments": args},
-                      decision=decision, outcome=outcome, policy_sha256=policy_sha, include_args=include_args)
+                      decision=decision, outcome=outcome, policy_sha256=policy_sha, include_args=include_args,
+                      fields=self.field_hashes, delegation=(self.delegation or {}).get("id"))
         self._check_size(fields)
         receipt = self._ledger.append(**fields)
         self.last = receipt

@@ -75,6 +75,25 @@ Verfy reduces risk; it does not remove it. These are the limits we know about. N
 - Invitations are links you share yourself; Verfy sends no email of its own (Supabase Auth sends sign-up and reset emails).
 - Policy regexes are checked for nested quantifiers, but regular expressions can still be slow on adversarial input on developer machines.
 
+## Added in 0.29.0
+
+- **Stop.** `verfy stop` writes `~/.verfy/stop.json`; the rules keep agents from removing it, but anyone at the machine can. A team's stop from Verfy Cloud reaches a device when it next checks: in the background about once a minute while its agents work, and on `verfy sync` or `verfy team stop-check`. A device that is offline, or whose agents are idle, keeps its last answer until then. `verfy resume` and `verfy breakglass` refuse to run without a terminal; the rule that refuses them to agents (VFY-SELF-003) is the real guard, because a program can fake a terminal.
+- **Emergency access** is opened by a person at the machine and is meant to let things through. It is recorded, not prevented: each action in the window names it in its receipt, and the window opening and closing are receipts.
+- **Observe mode** blocks nothing except what guards Verfy, a stop and protected paths. Turn it on only where you would accept that.
+- **Plain-language rules** cover the fixed English forms `verfy rule explain` lists. Other sentences, and other languages, are refused rather than guessed.
+- **Rule packs** match tool names by pattern, like the templates: a tool with an unusual name is not covered. They are starting points, not a review of each tool.
+- **Personal data** is found by patterns: card numbers with a known prefix that pass the Luhn check, IBANs with valid check digits, the US social security number format, and five or more email addresses at once. Data that is encoded, split, in an image or in another format gets through; a 16-digit ID that happens to pass the Luhn check is asked about.
+- **Browser actions** are judged by the element's name or text the tool passes (Playwright, Puppeteer and similar MCP tools). A click by screen position, as computer-use tools do, carries no such text and is not judged.
+- **Monthly, merchant and category totals** are kept by the MCP gateway (`spend.json`). Payments that go through a hook alone are checked against per-payment limits only; the SDK keeps its own daily totals (`limits.json`).
+- **Time stamps** prove the ledger head existed at the authority's time. Verfy checks the hash, the nonce and the time itself; the authority's signature and certificate chain are checked by OpenSSL when you give it the CA certificates.
+- **Disclosure** covers arguments only, and only for receipts written with `receipts.field_hashes` on. The tool name, the time and the verdict are always visible in a receipt.
+- **The IETF-draft exports** follow individual drafts (draft-farley-acta-signed-receipts-04, draft-sahu-agent-action-receipts-00) that may change. They are signed again with the same key; they add no proof the Verfy ledger does not have.
+- **The Go and Rust verifiers** check signatures, numbering and the chain of `verfy.receipt/1`; disclosures, time stamps, disputes and hand-overs are checked by the Python CLI.
+- **Disputes** carry a finding made by fixed rules from the receipt. Verfy has no arbitration or insurance partner, so it decides nothing about who pays and refunds nothing.
+- **Agent keys** are files on disk, like the main key. A revocation is a signed file you hand to whoever checks the receipts; there is no online revocation list.
+- **Mandates** are checked field by field (amount, currency, payee, expiry). Signatures inside AP2 mandates and x402 payments belong to the payment network and are not checked.
+- **Evidence packs** say where Verfy's evidence fits a control; the auditor decides what satisfies it.
+
 ## What we do not do
 
 No language model takes part in verdicts or verification. No "100% secure", "hacker-proof" or "guaranteed" claims. No certification, insurance or guarantee products exist in this release.

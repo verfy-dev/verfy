@@ -488,7 +488,7 @@ def _reason(decision: dict, receipt: dict | list[dict] | None) -> str:
 
 
 def run_pre_tool_use(payload: Any, *, get_policy: Callable[[str | None], dict], record: Callable[..., dict | None] | None,
-                     home: Path | None = None, to_action: Callable[[dict], dict] = action_from_payload) -> dict | None:
+                     home: Path | None = None, to_action: Callable[[dict], dict] = action_from_payload, agent: str | None = None) -> dict | None:
     if not isinstance(payload, dict):
         raise ValueError("hook input must be a JSON object")
     if to_action is action_from_payload and not payload.get("tool_name"):
@@ -504,7 +504,8 @@ def run_pre_tool_use(payload: Any, *, get_policy: Callable[[str | None], dict], 
     # One patch can change several files. Each is checked and the strictest answer wins; then each is recorded with the
     # outcome of the whole call, so a file that passed in a blocked patch is not recorded as written.
     source = sessions.source_of(home, tracked) if tracked else None
-    checked = [(action, check(action, policy, {"untrusted": source} if source else None)) for action in actions]
+    context = {**({"untrusted": source} if source else {}), **({"agent": agent} if agent else {})}
+    checked = [(action, check(action, policy, context)) for action in actions]
     # what a command starts: the scripts it runs, read before they run (scripts.py)
     checked = scripts.apply(home, session, checked, policy, cwd)
     if home is not None:
@@ -639,6 +640,7 @@ def run_hook(event: str, *, stdin: IO[str] | None = None, stdout: IO[str] | None
         print(f"verfy hook: unknown event `{event}` (supported: {', '.join(AGENTS)})", file=sys.stderr)
         return 2
     prepare, to_action, answer = AGENTS[event]
+    agent = "claude-code" if event == "pre-tool-use" else event
     payload = None
     try:
         raw = read_input(stdin)
@@ -657,14 +659,16 @@ def run_hook(event: str, *, stdin: IO[str] | None = None, stdout: IO[str] | None
             if devin_hook_installed():
                 return 0
             _prepare, to_action, answer = AGENTS["devin"]
+            agent = "devin"
             if record is not None:
                 record = functools.partial(record, agent="devin")
         elif event == "pre-tool-use" and copilot_through_claude(payload):
             # Copilot reads Claude Code's settings too and runs this hook, but reads only a top-level permissionDecision
             _prepare, to_action, answer = AGENTS["copilot"]
+            agent = "copilot"
             if record is not None:
                 record = functools.partial(record, agent="copilot")
-        out = run_pre_tool_use(payload, get_policy=get_policy, record=record, home=home, to_action=to_action)
+        out = run_pre_tool_use(payload, get_policy=get_policy, record=record, home=home, to_action=to_action, agent=agent)
     except Exception as e:  # noqa: BLE001 - every failure must become ask/deny, never allow
         mode = "ask"
         try:

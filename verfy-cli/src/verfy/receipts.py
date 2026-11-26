@@ -112,6 +112,22 @@ def salted_digest(value: Any, salt: bytes | None) -> str:
     return digest(value) if salt is None else digest({"salt": b64u(salt), "value": value})
 
 
+def field_salt(salt: bytes, rid: str, name: str) -> bytes:
+    """The salt of one argument's hash: derived from the key's secret salt, the receipt id and the argument name, so
+    showing one argument (with its salt) says nothing about the others or about other receipts."""
+    import hashlib
+    import hmac
+    return hmac.new(salt, (rid + "\x00" + name).encode("utf-8"), hashlib.sha256).digest()
+
+
+def field_digest(fsalt: bytes, name: str, value: Any) -> str:
+    return digest({"field": name, "salt": b64u(fsalt), "value": value})
+
+
+#: at most this many arguments get their own hash; a receipt stays small
+MAX_FIELDS = 32
+
+
 def sign_receipt(body: dict, key: Key) -> dict:
     body = dict(body)
     body.pop("sig", None)
@@ -136,8 +152,10 @@ def verify_receipt(receipt: dict, public: bytes) -> bool:
 
 def build_receipt(*, seq: int, prev: str | None, agent: str, session: str, action: dict, decision: dict,
                   outcome: dict, policy_sha256: str, tool_sha256: str | None = None, include_args: bool = False,
-                  issued_at: str | None = None, rid: str | None = None, salt: bytes | None = None, sandbox: str | None = None) -> dict:
+                  issued_at: str | None = None, rid: str | None = None, salt: bytes | None = None, sandbox: str | None = None,
+                  fields: bool = False, delegation: str | None = None) -> dict:
     args = action.get("arguments", {})
+    rid = rid or "rcpt_" + secrets.token_hex(8)
     act = {
         "server": action.get("server", ""),
         "tool": action.get("tool", ""),
@@ -146,9 +164,13 @@ def build_receipt(*, seq: int, prev: str | None, agent: str, session: str, actio
     }
     if include_args:
         act["args"] = redact_value(args)
+    if fields and salt is not None and isinstance(args, dict) and args:
+        # one hash per argument, so one of them can be shown later without the rest (verfy disclose)
+        names = sorted(args)[:MAX_FIELDS]
+        act["args_fields"] = {n: field_digest(field_salt(salt, rid, n), n, args[n]) for n in names}
     return {
         "v": VERSION,
-        "id": rid or "rcpt_" + secrets.token_hex(8),
+        "id": rid,
         "seq": seq,
         "prev": prev,
         "issued_at": issued_at or now_iso(),
@@ -160,10 +182,14 @@ def build_receipt(*, seq: int, prev: str | None, agent: str, session: str, actio
             "rules": [f["rule"] for f in decision.get("findings", [])],
             "policy_sha256": policy_sha256,
             **({"approved_by": decision["approved_by"]} if decision.get("approved_by") else {}),
+            # observe mode: what would have happened; emergency access: the window that let it through (control.py)
+            **({"would": decision["would"]} if decision.get("would") in ("ask", "deny") else {}),
+            **({"breakglass": str(decision["breakglass"])[:100]} if decision.get("breakglass") else {}),
         },
         "outcome": outcome,
         "tool_sha256": tool_sha256,
         **({"sandbox": sandbox} if sandbox else {}),
+        **({"delegation": delegation} if delegation else {}),  # the hand-over this agent acted under (identity.py)
     }
 
 

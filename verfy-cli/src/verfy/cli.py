@@ -2298,6 +2298,17 @@ def cmd_sync(args) -> int:
     key = get_key(args.key)
     res = teamlib.sync(verfy_home(), _ledger_path(args), key, allow_args=args.allow_args)
     print(f"Uploaded {res['uploaded']} receipt(s): {res['accepted']} new, {res['duplicates']} already there. Head seq {res['head_seq']}.")
+    try:
+        if teamlib.check_stop(verfy_home()):
+            print("Your team stopped every agent in Verfy Cloud: actions are blocked until the team resumes them.")
+    except teamlib.TeamError:
+        pass
+    return 0
+
+
+def cmd_team_stop_check(args) -> int:
+    stop = teamlib.check_stop(verfy_home())
+    print("Your team stopped every agent in Verfy Cloud." if stop else "Running: the team has not stopped the agents.")
     return 0
 
 
@@ -2513,6 +2524,8 @@ def build_parser() -> argparse.ArgumentParser:
     x = pol.add_parser("trust", help="let ./verfy.policy.json loosen Verfy too; without this it can only make Verfy stricter")
     x.add_argument("file", nargs="?", default="verfy.policy.json")
     x.set_defaults(fn=cmd_policy_trust)
+    from . import cli029
+    cli029.register(sub, pol)
 
     p = sub.add_parser("update", help="install the newest version, or choose automatic updates")
     p.add_argument("--check", action="store_true", help="only report whether a newer version exists (exit 1 if it does)")
@@ -2880,6 +2893,8 @@ def build_parser() -> argparse.ArgumentParser:
     x = tm.add_parser("pull", help="fetch the team policy and team-approved locks")
     x.add_argument("--lock")
     x.set_defaults(fn=cmd_team_pull)
+    x = tm.add_parser("stop-check", help="ask Verfy Cloud whether the team stopped every agent (the hook does this in the background)")
+    x.set_defaults(fn=cmd_team_stop_check)
     x = tm.add_parser("propose", help="ask team admins to approve a changed tool definition")
     x.add_argument("server")
     x.add_argument("tool")
@@ -2910,7 +2925,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     args.cmd = cmd_after
     if not hasattr(args, "fn"):
-        if getattr(args, "command_name", None) in ("ledger", "lock", "team", "scitt", "witness", "deal", "log", "incident", "adaptive", "rules"):
+        if getattr(args, "command_name", None) in ("ledger", "lock", "team", "scitt", "witness", "deal", "log", "incident", "adaptive", "rules",
+                                                   "breakglass", "timestamp", "disclose", "export"):
             ap.parse_args([args.command_name, "--help"])
         if not argv:
             print(START)  # a first run: three steps, not forty commands

@@ -2,6 +2,42 @@
 
 What changed in the Verfy CLI (`pip install verfy`) and the website. Newest first. Every CLI version is on [PyPI](https://pypi.org/project/verfy/#history) and as standalone builds on the [releases page](https://github.com/verfy-dev/verfy-releases/releases).
 
+## 0.29.0 (2026-11-27)
+
+People stay in charge, rules are easier to write, and receipts reach other tools.
+
+**A person in charge**
+- **`verfy stop`** blocks every action of every agent on this computer at once (VFY-STOP-001), or of one agent with `--agent cursor` (or `mcp:<server>` for one MCP server). Hooks, the MCP gateway and the SDK's `Recorder.guard` all answer it. Only `verfy resume`, typed by a person at a terminal, starts them again. A team can stop all its devices from Verfy Cloud: the team policy then carries `"stop"`.
+- **`verfy breakglass`** opens emergency access for up to four hours: the rules that ask are waived, or only the rules named with `--rule` (also rules that block). What guards Verfy, a stop and protected paths are never waived. Every action in that time carries `decision.breakglass` in its receipt, and opening and closing the window are receipts too. It needs a person at a terminal and a reason.
+- **`verfy today`**: what your agents did today, in plain words, from the receipts: how many actions, what was blocked and asked about, what emergency access let through, whether the chain checks out. Fixed text, no model.
+- Agents cannot run `verfy resume`, `verfy breakglass`, `verfy policy observe`, `verfy rule add|remove`, `verfy policy pack` or `verfy agent create|revoke` (VFY-SELF-003).
+
+**Rules**
+- **Rules in plain English**: `verfy rule add "ask before payments over 50"` turns a sentence into an exact policy change by fixed patterns, shows it, and writes it after you say yes. A sentence it does not cover is refused with the forms that work; no model decides what a sentence means, and the decision on each action is made by the written rule. `verfy rule explain`, `list`, `remove`.
+- **Rule packs**: `verfy policy pack add github | databases | slack | payments | email | cloud`: ready rules for common tools (repository deletion blocked, DELETE without WHERE asks, @channel asks, refunds and payouts ask, mail forwarding blocked, `terraform destroy` blocked, ...). `remove` takes a pack out again.
+- **Observe mode**: `verfy policy observe` blocks nothing and records in each receipt what would have happened (`decision.would`); `verfy today` lists it; `verfy policy enforce` ends it. What guards Verfy, a stop and protected paths stay on. A cloned project policy can end observe mode, never start it.
+- **The simulator**: `verfy policy simulate new.json` checks a policy against the tool calls agents already made (Claude Code's transcripts on this computer, or a file of actions) and lists every action whose answer would change, before you turn it on.
+- **Personal data leaving the computer** (VFY-DLP-001..005): payment card numbers (with a Luhn check), IBANs (with the check digits), US social security numbers, five or more email addresses at once, and patterns you name (`dlp.patterns`, for customer IDs and the like) in an outgoing request, message, upload or browser input ask (`dlp.personal`: ask, deny or off). The value is never repeated in the message.
+- **Browser agents** (VFY-WEB-001, 002): a click on "Place order", "Buy now", "Pay", "Checkout", "Subscribe" and the like asks; typing into a password, card number, CVV or one-time code field asks. Works for Playwright, Puppeteer and other browser MCP tools that name the element.
+- **Wider spending limits**: `payments.monthly_budget` (VFY-PAY-007), per-merchant limits per payment and per day (`payments.merchants`, VFY-PAY-008), per-category limits per payment, day and month by category name or MCC (`payments.categories`, VFY-PAY-009), and `payments.unknown_recipient: "deny"` to pay only the listed recipients. The MCP gateway keeps the totals on this computer (`spend.json`: amounts, payees and categories only).
+- The guard now has 89 rules (78 in 0.28.1).
+
+**Receipts and evidence**
+- **Time stamps from an independent authority** (RFC 3161): `verfy timestamp` has DigiCert's public time stamp service (or `--tsa URL`) sign the ledger head; only the hash leaves the computer. `verfy timestamp verify FILE.tsr` checks the hash, the time and which receipt it covers, and the authority's signature with OpenSSL when you pass its CA certificates.
+- **Show one part of a receipt**: with `"receipts": {"field_hashes": true}` each argument also gets its own salted hash (`action.args_fields`); `verfy disclose --seq N --show amount,payee` hands over the signed receipt and only those values; the other arguments cannot be guessed from their hashes.
+- **Evidence packs**: `verfy evidence` writes one zip for an auditor: a summary, the receipts mapped to SOC 2, ISO/IEC 42001, AIUC-1 and EU AI Act controls, `report.html`, `report.pdf`, the ledger and how to check it.
+- **Export**: `verfy export --format ocsf` (OCSF 1.3.0 API Activity events for a SIEM), `acta` (the envelope of the IETF draft draft-farley-acta-signed-receipts-04) and `aar` (the IETF draft draft-sahu-agent-action-receipts-00, checked against that draft's own test vector). `verfy export verify` checks the two signed formats.
+- **Verifier libraries in Go and Rust** (`verifiers/`), next to Python and JavaScript, all tested in CI against the same receipt and canonical JSON vectors.
+- **Disputes**: `verfy dispute open --seq N --claim "..."` writes a signed record with the receipt, the chain check and a first finding made by fixed rules (blocked, approved by a person, emergency access, observe mode, allowed by the policy). It is evidence, not a judgement: Verfy has no arbitration or insurance partner.
+
+**Agents working for agents**
+- **Agent keys**: `verfy agent create NAME` gives an agent its own signing key and a certificate signed by your key, so receipts prove whose agent acted; `verfy agent revoke` withdraws it; `verfy agent verify` checks a certificate and the agent's ledger. `Recorder(key=...)` signs with it.
+- **Hand-overs**: `Recorder.delegate(...)` signs a hand-over to another agent's key with the actions it may take, stricter limits and an end time, and records it; `Recorder(delegation=...)` refuses what is outside it (VFY-DLG-001), and each receipt names the hand-over. A hand-over made under another can only narrow it. `identity.verify_chain` checks the whole chain.
+- **Mandates**: `verfy mandate check` and `verfy.mandate.check` compare a payment with an AP2 intent, cart or payment mandate or x402 payment requirements: amount, currency, payee, expiry (VFY-MDT-001..005). Signatures inside the mandate belong to the payment network and are not checked here.
+- TypeScript: the engine's types gain `would`, `breakglass`, `waived`, `CheckContext`, `settle` and `stopped`.
+
+Not built, and listed on /security#next: passkey (Face ID, fingerprint) signatures bound to an action, which need Verfy Cloud; insurance-backed undo and human arbitration, which need partners; selling paid plans (Paddle or Lemon Squeezy), which needs an adult's account; SAML single sign-on.
+
 ## 0.28.1 (2026-11-26)
 
 - **The hook is about a third faster.** `verfy hook <event>` now loads only what the hook needs (new `entry.py` and `hookenv.py`; the `verfy` command starts at `verfy.entry:main`), `import verfy` loads its public names when they are first used, the HTTP client is loaded only by a device enrolled in a team, and the hook's own state files (scripts, adaptive) are no longer flushed to disk on every call; receipts still are. Measured on a Windows 11 laptop (12-core AMD, Python 3.14), a whole hook run with a signing key, from starting Python to the answer: median 419 ms in 0.28.0, 272 ms now. One check inside a running process (the gateway, the SDK) takes a median of 0.5 ms. `tests/test_fast_hook.py` checks that the short path answers exactly as the full CLI does.

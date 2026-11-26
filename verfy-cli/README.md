@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.28.1
+    rev: cli-v0.29.0
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.28.1" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.29.0" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -578,6 +578,100 @@ Measured on a Windows 11 laptop (12-core AMD, Python 3.14) with 0.28.1:
 
 Agents start the hook as a new program for every tool call, so most of the second number is Python starting and
 reading Verfy's rules. Linux and macOS start programs faster than Windows.
+
+## Stop everything, or open emergency access
+
+```bash
+verfy stop                         # every agent on this computer: every action is blocked (VFY-STOP-001)
+verfy stop --agent cursor          # one agent (or mcp:<server> for one MCP server behind the gateway)
+verfy resume                       # only a person at a terminal; agents are refused (VFY-SELF-003)
+verfy breakglass --minutes 15 --reason "prod is down, hotfix"   # waive the rules that ask, for 15 minutes
+verfy breakglass --rule "VFY-NET-*" --minutes 10 --reason "..." # or only the rules you name (also ones that block)
+verfy breakglass end
+```
+
+Hooks, the MCP gateway and `Recorder.guard` all answer a stop. In Verfy Cloud a team owner can stop every agent on
+every enrolled device; devices check for it in the background about once a minute while agents work. Emergency
+access never opens what guards Verfy, a stop or protected paths; every action in the window carries
+`decision.breakglass` in its receipt, and opening and closing it are receipts too.
+
+## What your agents did today
+
+```bash
+verfy today            # plain words from the receipts: actions, what was blocked, asked, let through
+verfy today --date 2026-11-26 --json
+```
+
+## Rules in plain English, packs, observe mode and the simulator
+
+```bash
+verfy rule add "ask before payments over 50"
+verfy rule add "block deleting files outside the project"
+verfy rule add "block commands starting with terraform"
+verfy rule explain "block calls to example.com"      # shows the policy change, writes nothing
+verfy rule list
+verfy policy pack add github        # also: databases, slack, payments, email, cloud
+verfy policy observe                # block nothing, record what would have happened (decision.would)
+verfy policy simulate new.json      # replay the tool calls Claude Code made here this week against new.json
+verfy policy enforce
+```
+
+A sentence is turned into an exact policy change by fixed patterns, shown to you, and written after you say yes.
+What is not covered is refused with the forms that work; no model decides what a sentence means, and every action is
+decided by the written rule. `verfy rule explain` lists the forms.
+
+## Personal data, browser agents and spending limits
+
+```json
+{
+  "dlp": { "personal": "ask", "bulk": 5, "patterns": [{ "pattern": "CUST-\\d{6}", "label": "a customer ID", "then": "deny" }] },
+  "payments": {
+    "monthly_budget": 1000,
+    "merchants": { "aws*": { "max_per_call": 200, "daily": 400 } },
+    "categories": { "gambling": { "max_per_call": 0 }, "7995": { "daily": 0 }, "travel": { "monthly": 500, "then": "ask" } },
+    "recipients": ["acme", "aws*"], "unknown_recipient": "deny"
+  }
+}
+```
+
+Card numbers (Luhn-checked), IBANs (check digits), US social security numbers, five or more email addresses at
+once, and your own patterns ask before they leave in a request, message, upload or browser input (VFY-DLP-001..005).
+A click on "Place order", "Pay", "Subscribe" and the like asks, and so does typing into a password, card or one-time
+code field (VFY-WEB-001, 002). Payments get monthly, per-merchant and per-category limits (VFY-PAY-007..009).
+
+## Time stamps, disclosure, evidence, exports and disputes
+
+```bash
+verfy timestamp                                   # DigiCert's RFC 3161 service signs the ledger head (only the hash is sent)
+verfy timestamp verify ~/.verfy/timestamps/12-*.tsr --ca ca-bundle.crt
+verfy disclose --seq 12 --args args.json --show amount,payee --out d.json   # needs "receipts": {"field_hashes": true}
+verfy disclose verify d.json --pub KEY
+verfy evidence --framework all --out evidence.zip  # SOC 2, ISO/IEC 42001, AIUC-1, EU AI Act; HTML, PDF and the ledger
+verfy export --format ocsf > events.jsonl          # OCSF 1.3.0 API Activity, for a SIEM
+verfy export --format acta --out acta.jsonl        # IETF draft-farley-acta-signed-receipts-04
+verfy export --format aar --out aar.jsonl          # IETF draft-sahu-agent-action-receipts-00
+verfy dispute open --seq 12 --claim "The agent refunded the wrong order."
+```
+
+Go and Rust libraries that check a ledger live in [`verifiers/`](../verifiers/README.md), next to Python and
+JavaScript, tested against the same vectors.
+
+## Agent keys, hand-overs and mandates
+
+```bash
+verfy agent create buyer-bot      # its own key, certified by yours: receipts prove whose agent acted
+verfy agent verify ~/.verfy/agents/buyer-bot/cert.json --owner OWNER_KEY --ledger ~/.verfy/agents/buyer-bot/ledger.jsonl
+verfy mandate check cart.json --amount 42.50 --currency USD --payee shop   # AP2 mandates, x402 payment requirements
+```
+
+```python
+from verfy import Recorder
+boss = Recorder("planner")
+handover = boss.delegate(to_public=helper_public_key, to_agent="buyer", tools=["buy_*"], minutes=30,
+                         rules=[{"kind": "payment", "amount": "amount", "over": 50, "then": "deny"}])
+helper = Recorder("buyer", key="~/.verfy/agents/buyer/key.json", delegation=handover)
+helper.guard("buy_book", kind="payment", args={"amount": 20})   # inside the hand-over: allowed, and its receipt names it
+```
 
 ## What is on here
 

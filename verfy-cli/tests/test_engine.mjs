@@ -56,6 +56,16 @@ async function main() {
     expect("precheck: " + c.name, { verdict: r.verdict, kind: r.kind, rules }, c.expect);
   }
 
+  // 0.29.0: stop, break glass, observe mode, personal data, browser actions, payment limits, message by message
+  const ctl = JSON.parse(fs.readFileSync(path.join(FX, "control.json"), "utf8"));
+  for (const c of ctl.cases) {
+    const r = K.check(c.action, Object.assign({}, ctl.policy, c.policy), c.context);
+    const got = { verdict: r.verdict, kind: r.kind, findings: r.findings.map((f) => Object.assign({ rule: f.rule, verdict: f.verdict, message: f.message }, f.waived ? { waived: f.waived } : {})) };
+    if (r.would) got.would = r.would;
+    if (r.breakglass) got.breakglass = r.breakglass;
+    expect("control: " + c.name, got, c.expect);
+  }
+
   // scanner
   for (const c of JSON.parse(fs.readFileSync(path.join(FX, "scan.json"), "utf8"))) {
     const data = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "examples", "tools", c.file), "utf8"));

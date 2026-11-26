@@ -61,6 +61,9 @@ def load_policy(source: str | os.PathLike | dict | None = None, *, workspace: st
     # read with the default "ask" where it is used, and left out of the default policy (see prompt_secrets below)
     if not isinstance(pol.get("messages", {}), dict) or (pol.get("messages") or {}).get("send", "ask") not in ("ask", "deny", "allow"):
         raise ValueError("messages.send must be ask, deny or allow")
+    if pol.get("mode", "enforce") not in ("enforce", "observe"):
+        raise ValueError("mode must be enforce or observe")
+    _check_extras(pol)
     if (pol.get("lock") or {}).get("on_new") not in ("ask", "deny", "allow"):
         raise ValueError("lock.on_new must be ask, deny or allow")
     # read with the default "block" where it is used; left out of the policy so its hash, and receipts, stay the same
@@ -78,6 +81,41 @@ def load_policy(source: str | os.PathLike | dict | None = None, *, workspace: st
             raise ValueError("scripts must be an object")
         script_settings(pol)
     return pol
+
+
+def _limit(where: str, v: Any) -> None:
+    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0):
+        raise ValueError(f"{where} must be a number of at least 0")
+
+
+def _check_extras(pol: dict) -> None:
+    """The parts 0.29.0 added; each is read with its default where used and left out of the default policy, so the
+    policy's hash, and the receipts of anyone who does not use them, stay the same."""
+    pay = pol.get("payments") or {}
+    _limit("payments.monthly_budget", pay.get("monthly_budget"))
+    if pay.get("unknown_recipient", "ask") not in ("ask", "deny"):
+        raise ValueError("payments.unknown_recipient must be ask or deny")
+    for part, fields in (("merchants", ("max_per_call", "daily")), ("categories", ("max_per_call", "daily", "monthly"))):
+        table = pay.get(part, {})
+        if not isinstance(table, dict) or not all(isinstance(v, dict) for v in table.values()):
+            raise ValueError(f"payments.{part} must map a name or * pattern to its limits")
+        for name, lim in table.items():
+            for f in fields:
+                _limit(f"payments.{part}.{name}.{f}", lim.get(f))
+            if part == "categories" and lim.get("then", "deny") not in ("ask", "deny"):
+                raise ValueError(f"payments.categories.{name}.then must be ask or deny")
+    dlp = pol.get("dlp", {})
+    if not isinstance(dlp, dict) or dlp.get("personal", "ask") not in ("ask", "deny", "off"):
+        raise ValueError("dlp.personal must be ask, deny or off")
+    bulk = dlp.get("bulk", 5)
+    if isinstance(bulk, bool) or not isinstance(bulk, int) or bulk < 0:
+        raise ValueError("dlp.bulk must be a whole number (0 turns it off)")
+    pats = dlp.get("patterns", [])
+    if not isinstance(pats, list) or not all(isinstance(p, dict) and isinstance(p.get("pattern"), str) and p.get("then", "ask") in ("ask", "deny") for p in pats):
+        raise ValueError('dlp.patterns must be a list of {"pattern": "...", "label": "...", "then": "ask" or "deny"}')
+    for key in ("stop", "breakglass"):
+        if key in pol and not isinstance(pol[key], dict):
+            raise ValueError(f"{key} must be an object")
 
 
 # "hooks" asks where an agent can put the question to a person (its hooks) and leaves the MCP gateway alone
@@ -123,6 +161,15 @@ def tighten(base: dict, project: Any) -> dict:
         out["messages"] = {**(out.get("messages") or {}), "send": _stricter((out.get("messages") or {}).get("send", "ask"), sends)}
     if project.get("on_ask") == "deny":
         out["on_ask"] = "deny"
+    if project.get("mode") == "enforce":  # a cloned policy can end observe mode, never start it
+        out["mode"] = "enforce"
+    project_dlp = part("dlp")
+    if project_dlp.get("personal") in ("ask", "deny") or isinstance(project_dlp.get("patterns"), list):
+        mine = dict(out.get("dlp") or {})
+        mine["personal"] = _stricter(mine.get("personal", "ask"), project_dlp.get("personal"))
+        mine["patterns"] = [*(mine.get("patterns") or []), *[p for p in project_dlp.get("patterns") or []
+                                                              if isinstance(p, dict) and isinstance(p.get("pattern"), str) and p.get("then", "ask") in ("ask", "deny")]]
+        out["dlp"] = mine
     adaptive = part("adaptive")
     if adaptive:
         mine = dict(out.get("adaptive") or {})
@@ -138,7 +185,7 @@ def tighten(base: dict, project: Any) -> dict:
         out["adaptive"] = mine
     if part("scripts").get("read") == "on":
         out["scripts"] = {**(out.get("scripts") or {}), "read": "on"}
-    for key in ("max_per_call", "ask_above", "daily_budget"):
+    for key in ("max_per_call", "ask_above", "daily_budget", "monthly_budget"):
         v = pay.get(key)
         if isinstance(v, (int, float)) and not isinstance(v, bool) and (out["payments"].get(key) is None or v < out["payments"][key]):
             out["payments"][key] = v

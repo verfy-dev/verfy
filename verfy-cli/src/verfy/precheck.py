@@ -654,7 +654,7 @@ def _resolvable(p: str, here: str | None) -> bool:
     return "$" not in p and "`" not in p and (here is not None or p.startswith(("/", "~")))
 
 
-def _verfy_secret(s: dict, ctx: "_Ctx", here: str | None) -> dict | None:
+def _verfy_key_file(s: dict, ctx: "_Ctx", here: str | None) -> dict | None:
     """A finding when one command reads, copies or looks for Verfy's signing key or device token."""
     parts = [x for t in [s["name"], *s["args"], *s["inp"], *s["out"]] for x in (t, *t.split("=")[1:]) if x]
     for p in parts:
@@ -738,11 +738,27 @@ def _verfy_command(s: dict) -> dict | None:
             return _f("VFY-SELF-003", "deny", "Connects this device to a Verfy Cloud, which decides where its receipts go. A person has to run it.")
         if words_[:3] == ["team", "auto-sync", "off"]:
             return _f("VFY-SELF-003", "deny", "`verfy team auto-sync off` stops this device's receipts from reaching your team. A person has to run it.")
+        person = PERSON_ONLY.get(" ".join(words_[:2])) or PERSON_ONLY.get(" ".join(words_[:1]))
+        if person:
+            return _f("VFY-SELF-003", "deny", person)
         return None
     pip = n in ("pip", "pip3", "pipx") or (n == "uv" and a[:1] in (["pip"], ["tool"])) or (re.match(r"^python[0-9.]*$|^py$", n) and a[:2] == ["-m", "pip"])
     if pip and "uninstall" in a and any(x.lower() == "verfy" for x in a):
         return _f("VFY-SELF-004", "deny", "Uninstalls Verfy.")
     return None
+
+
+#: what loosens Verfy for a while or for good; only a person runs it, in a terminal
+PERSON_ONLY = {
+    "resume": "`verfy resume` starts the agents again after a stop. A person has to run it.",
+    "breakglass": "`verfy breakglass` opens emergency access past the rules. A person has to run it.",
+    "policy observe": "`verfy policy observe` stops Verfy from blocking anything. A person has to run it.",
+    "rule add": "`verfy rule add` changes the rules Verfy enforces. A person has to read the rule and run it.",
+    "rule remove": "`verfy rule remove` removes a rule Verfy enforces. A person has to run it.",
+    "policy pack": "`verfy policy pack` changes the rules Verfy enforces. A person has to run it.",
+    "agent create": "`verfy agent create` makes a signing key that speaks for you. A person has to run it.",
+    "agent revoke": "`verfy agent revoke` changes which agent keys you stand behind. A person has to run it.",
+}
 
 
 def _canon_host(host: str) -> str:
@@ -915,9 +931,9 @@ def check_shell(cmd: str, ctx: _Ctx, again: bool = True) -> tuple[list[dict], bo
 
     for s in segs:
         n, a = s["name"], s["args"]
-        secret = _verfy_secret(s, ctx, cwd if s["depth"] == 0 else ctx.ws)
-        if secret:
-            out.append(secret)
+        key_hit = _verfy_key_file(s, ctx, cwd if s["depth"] == 0 else ctx.ws)
+        if key_hit:
+            out.append(key_hit)
         if s["depth"] == 0 and n == "cd":
             ops = operands(a)
             if not ops:
@@ -1089,6 +1105,8 @@ def classify(tool: str, args: dict) -> str:
         return "network"
     if w & set(verbs["message"]) and set(keys) & {"to", "recipient", "recipients", "channel", "body", "text", "message", "subject", "chat_id", "content"}:
         return "message"
+    if w & set(PATTERNS["browser"]["acts"]) and set(keys) & set(PATTERNS["browser"]["target_keys"]):
+        return "browser"  # a click or typing on a web page: browser_click {"element": "Place order", "ref": "e12"}
     return "other"
 
 
@@ -1229,6 +1247,8 @@ def check(action: dict, policy: dict | None = None, context: dict | None = None)
                         out.append(_f("VFY-FS-002", v, f"Changes {p}, which is outside the project."))
         elif kind == "payment":
             out.extend(_check_payment(args, pol, context))
+        elif kind == "browser":
+            out.extend(_check_browser(tool, args))
         if kind != "shell":
             # a path under any key, also nested: a tool may call it `location` or `options.path`
             covered = {p for _, p in _paths(args)} if kind.startswith("file_") else set()
@@ -1251,6 +1271,8 @@ def check(action: dict, policy: dict | None = None, context: dict | None = None)
                     out.append(_f("VFY-SEC-001", "deny", f"Would send a {s['label']} out of this computer (in `{path_ or 'arguments'}`)."))
                 else:
                     out.append(_f("VFY-SEC-001", "ask", f"Contains a {s['label']} (in `{path_ or 'arguments'}`)."))
+        if network or kind in ("network", "message", "browser"):
+            out.extend(_check_dlp(args, pol))
         if kind == "message":
             # a message goes out under the user's name and cannot be taken back; read with its default where used
             sends = (pol.get("messages") or {}).get("send", "ask")
@@ -1279,19 +1301,175 @@ def check(action: dict, policy: dict | None = None, context: dict | None = None)
                 out.append(_f(r.get("id", "custom"), r.get("verdict", "ask"), r.get("message", "Matches a custom rule.")))
                 break
 
+    stop = stopped(pol.get("stop"), str(context.get("agent") or pol.get("agent") or ""))
+    if stop:  # a person stopped the agents: nothing runs, whatever the rules say
+        out.insert(0, _f("VFY-STOP-001", "deny", stop))
     disabled = set(pol.get("disabled_rules", []))
     seen: set[tuple[str, str]] = set()
     findings = []
     for f in out:
         key = (f["rule"], f["message"])
-        # what guards Verfy itself cannot be listed away
-        if (f["rule"] in disabled and not f["rule"].startswith("VFY-SELF-")) or key in seen:
+        # what guards Verfy itself, and a stop, cannot be listed away
+        if (f["rule"] in disabled and not f["rule"].startswith(("VFY-SELF-", "VFY-STOP-"))) or key in seen:
             continue
         seen.add(key)
         findings.append(f)
+    return settle({"v": VERSION, "verdict": "allow", "kind": kind, "tool": full, "findings": findings, "reaches_network": bool(network)},
+                  pol, context.get("now"))
+
+
+#: findings no break glass waives and observe mode still enforces: what guards Verfy, a stop, and protected paths
+KEPT = ("VFY-SELF-", "VFY-STOP-", "VFY-FS-001", "VFY-SH-011")
+
+
+def stopped(stop: Any, agent: str) -> str | None:
+    """Why every action is blocked: `verfy stop` on this computer, or a team's stop from Verfy Cloud. None when running."""
+    if not isinstance(stop, dict):
+        return None
+    hit = stop.get("all")
+    who = "every agent"
+    if not hit:
+        agents = stop.get("agents") if isinstance(stop.get("agents"), dict) else {}
+        name = next((n for n in agents if agent and name_match(n, agent)), None)
+        if name is None:
+            return None
+        hit, who = agents[name], f"the agent `{agent}`"
+    info = hit if isinstance(hit, dict) else {}
+    reason = f" ({str(info['reason'])[:200]})" if info.get("reason") else ""
+    if info.get("by") == "team":
+        return f"Your team stopped {who} in Verfy Cloud{reason}. Nothing runs until the team resumes them there."
+    return f"A person stopped {who} with `verfy stop`{reason}. Nothing runs until a person runs `verfy resume` in a terminal."
+
+
+def _iso_time(v: Any) -> float | None:
+    import datetime as _dt
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    if not isinstance(v, str):
+        return None
+    try:
+        t = _dt.datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=_dt.timezone.utc)
+    return t.timestamp()
+
+
+def active_breakglass(bg: Any, now: Any = None) -> dict | None:
+    """The emergency access a person opened with `verfy breakglass`, while it lasts."""
+    import time
+    if not isinstance(bg, dict) or not isinstance(bg.get("id"), str):
+        return None
+    until = _iso_time(bg.get("until"))
+    t = _iso_time(now) if now is not None else time.time()
+    return bg if until is not None and t is not None and t < until else None
+
+
+def _waived(f: dict, bg: dict) -> bool:
+    if f["rule"].startswith(KEPT):
+        return False
+    for pat in bg.get("rules") or ["*"]:
+        if pat == "*":
+            if f["verdict"] == "ask":  # all of them covers what asks; a rule that blocks has to be named
+                return True
+        elif isinstance(pat, str) and name_match(pat, f["rule"]):
+            return True
+    return False
+
+
+def settle(decision: dict, policy: dict, now: Any = None) -> dict:
+    """Sort the findings and set the verdict, with break glass and observe mode applied. Call it again after adding
+    findings (scripts.py and adaptive.py do), so a verdict always follows the same steps."""
+    findings = decision.get("findings", [])
     findings.sort(key=lambda f: -VERDICT_RANK[f["verdict"]])
-    verdict = findings[0]["verdict"] if findings else "allow"
-    return {"v": VERSION, "verdict": verdict, "kind": kind, "tool": full, "findings": findings, "reaches_network": bool(network)}
+    for key in ("would", "breakglass"):
+        decision.pop(key, None)
+    bg = active_breakglass(policy.get("breakglass"), now)
+    for f in findings:
+        f.pop("waived", None)
+        if bg and _waived(f, bg):
+            f["waived"] = "breakglass"
+    if bg and any(f.get("waived") for f in findings):
+        decision["breakglass"] = bg["id"]
+    live = [f for f in findings if not f.get("waived")]
+    verdict = live[0]["verdict"] if live else "allow"
+    if policy.get("mode") == "observe" and verdict != "allow":
+        kept = [f for f in live if f["rule"].startswith(KEPT)]
+        enforced = kept[0]["verdict"] if kept else "allow"
+        if enforced != verdict:  # observe mode: recorded as what would have happened, nothing blocked
+            decision["would"] = verdict
+            verdict = enforced
+    decision["verdict"] = verdict
+    return decision
+
+
+def _check_browser(tool: str, args: dict) -> list[dict]:
+    b = PATTERNS["browser"]
+    w = set(words(tool.split("/")[-1]))
+    keys = {str(k).lower(): v for k, v in args.items()}
+
+    def label(names: list[str]) -> str:
+        return " ".join(keys[k] for k in names if isinstance(keys.get(k), str))[:300]
+
+    out = []
+    clicked = label(b["label_keys"])
+    if w & {"click", "press", "submit", "tap", "dblclick"} and rx(b["buy"], "i").search(clicked):
+        out.append(_f("VFY-WEB-001", "ask", f"Clicks `{clicked[:80]}`, which looks like it buys or pays for something."))
+    field = label(b["field_keys"])
+    if w & {"type", "fill"} and rx(b["secret_field"], "i").search(field):
+        out.append(_f("VFY-WEB-002", "ask", f"Types into a password or payment field (`{field[:80]}`)."))
+    return out
+
+
+def _luhn(digits: str) -> bool:
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        n = int(ch)
+        if i % 2:
+            n = n * 2 - 9 if n > 4 else n * 2
+        total += n
+    return total % 10 == 0
+
+
+def _iban_ok(s: str) -> bool:
+    s = s.replace(" ", "")
+    if not 15 <= len(s) <= 34:
+        return False
+    n = "".join(str(int(c, 36)) for c in s[4:] + s[:4])
+    return int(n) % 97 == 1
+
+
+def _check_dlp(args: dict, pol: dict) -> list[dict]:
+    """Personal data leaving this computer: card numbers, IBANs, US social security numbers, many email addresses at
+    once, and what the policy names (``dlp.patterns``). The value itself is never repeated in the message."""
+    cfg = pol.get("dlp") if isinstance(pol.get("dlp"), dict) else {}
+    personal = cfg.get("personal", "ask")
+    p = PATTERNS["dlp"]
+    out: list[dict] = []
+    emails: set[str] = set()
+    for path_, text in flatten_strings(args):
+        where = path_ or "arguments"
+        if personal in ("ask", "deny"):
+            for m in rx(p["card"], "").finditer(text):
+                digits = re.sub(r"[ -]", "", m.group(0))
+                if 13 <= len(digits) <= 19 and len(set(digits)) > 1 and _luhn(digits):
+                    out.append(_f("VFY-DLP-001", personal, f"Would send a payment card number out of this computer (in `{where}`)."))
+                    break
+            if any(_iban_ok(m.group(0)) for m in rx(p["iban"], "").finditer(text)):
+                out.append(_f("VFY-DLP-002", personal, f"Would send a bank account number (IBAN) out of this computer (in `{where}`)."))
+            if rx(p["ssn"], "").search(text):
+                out.append(_f("VFY-DLP-003", personal, f"Would send what looks like a US social security number (in `{where}`)."))
+            emails.update(m.group(0).lower() for m in rx(p["email"], "").finditer(text))
+        for i, spec in enumerate(cfg.get("patterns") or []):
+            if isinstance(spec, dict) and isinstance(spec.get("pattern"), str) and rx(spec["pattern"], spec.get("flags", "")).search(text):
+                then = spec.get("then", "ask") if spec.get("then") in ("ask", "deny") else "ask"
+                what = str(spec.get("label") or f"data your policy protects (dlp.patterns[{i}])")[:80]
+                out.append(_f("VFY-DLP-005", then, f"Would send {what} out of this computer (in `{where}`)."))
+    bulk = cfg.get("bulk", 5)
+    if personal in ("ask", "deny") and isinstance(bulk, int) and not isinstance(bulk, bool) and bulk > 0 and len(emails) >= bulk:
+        out.append(_f("VFY-DLP-004", personal, f"Would send {len(emails)} email addresses out of this computer at once."))
+    return out
 
 
 def payment_amount(args: dict) -> float | None:
@@ -1314,19 +1492,44 @@ def _check_payment(args: dict, pol: dict, context: dict) -> list[dict]:
         out.append(_f("VFY-PAY-006", "deny", "The amount is negative."))
         return out
     spent = float(context.get("spent_today") or 0)
+    month = float(context.get("spent_month") or 0)
     if pay.get("max_per_call") is not None and amount > pay["max_per_call"]:
         out.append(_f("VFY-PAY-001", "deny", f"{amount:g} is over the per-payment limit of {pay['max_per_call']:g}."))
     elif pay.get("daily_budget") is not None and spent + amount > pay["daily_budget"]:
         out.append(_f("VFY-PAY-002", "deny", f"This payment would take today's spending to {spent + amount:g}, over the daily budget of {pay['daily_budget']:g}."))
+    elif pay.get("monthly_budget") is not None and month + amount > pay["monthly_budget"]:
+        out.append(_f("VFY-PAY-007", "deny", f"This payment would take this month's spending to {month + amount:g}, over the monthly budget of {pay['monthly_budget']:g}."))
     elif pay.get("ask_above") is not None and amount > pay["ask_above"]:
         out.append(_f("VFY-PAY-003", "ask", f"{amount:g} is above the approval threshold of {pay['ask_above']:g}."))
     cur = keys.get("currency") or keys.get("ccy")
     if isinstance(cur, str) and pay.get("currencies") and cur.upper() not in [c.upper() for c in pay["currencies"]]:
         out.append(_f("VFY-PAY-004", "ask", f"Currency {cur.upper()} is not on the allowed list."))
-    if pay.get("recipients"):
-        for k in PATTERNS["recipient_keys"]:
-            if isinstance(keys.get(k), str):
-                if not any(name_match(p, keys[k]) for p in pay["recipients"]):
-                    out.append(_f("VFY-PAY-005", "ask", f"`{keys[k]}` is not on the list of known recipients."))
-                break
+    payee = next((keys[k] for k in PATTERNS["recipient_keys"] if isinstance(keys.get(k), str)), None)
+    if pay.get("recipients") and payee is not None and not any(name_match(p, payee) for p in pay["recipients"]):
+        v = "deny" if pay.get("unknown_recipient") == "deny" else "ask"
+        out.append(_f("VFY-PAY-005", v, f"`{payee}` is not on the list of known recipients."))
+    merchants = pay.get("merchants") if isinstance(pay.get("merchants"), dict) else {}
+    for pat, lim in merchants.items():
+        if payee is None or not isinstance(lim, dict) or not name_match(pat, payee):
+            continue
+        day = float(context.get("spent_payee_today") or 0)
+        if lim.get("max_per_call") is not None and amount > lim["max_per_call"]:
+            out.append(_f("VFY-PAY-008", "deny", f"{amount:g} is over the limit of {lim['max_per_call']:g} for `{payee}`."))
+        elif lim.get("daily") is not None and day + amount > lim["daily"]:
+            out.append(_f("VFY-PAY-008", "deny", f"This payment would take today's spending at `{payee}` to {day + amount:g}, over its daily limit of {lim['daily']:g}."))
+        break
+    cat = next((str(keys[k]) for k in PATTERNS["dlp"]["category_keys"] if isinstance(keys.get(k), (str, int)) and not isinstance(keys.get(k), bool)), None)
+    cats = pay.get("categories") if isinstance(pay.get("categories"), dict) else {}
+    for pat, lim in cats.items():
+        if cat is None or not isinstance(lim, dict) or not name_match(pat, cat):
+            continue
+        then = "ask" if lim.get("then") == "ask" else "deny"
+        day, mon = float(context.get("spent_category_today") or 0), float(context.get("spent_category_month") or 0)
+        if lim.get("max_per_call") is not None and amount > lim["max_per_call"]:
+            out.append(_f("VFY-PAY-009", then, f"{amount:g} is over the limit of {lim['max_per_call']:g} for the category `{cat}`."))
+        elif lim.get("daily") is not None and day + amount > lim["daily"]:
+            out.append(_f("VFY-PAY-009", then, f"This payment would take today's spending in `{cat}` to {day + amount:g}, over its daily limit of {lim['daily']:g}."))
+        elif lim.get("monthly") is not None and mon + amount > lim["monthly"]:
+            out.append(_f("VFY-PAY-009", then, f"This payment would take this month's spending in `{cat}` to {mon + amount:g}, over its monthly limit of {lim['monthly']:g}."))
+        break
     return out

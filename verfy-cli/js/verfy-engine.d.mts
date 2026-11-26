@@ -8,6 +8,8 @@ export interface Finding {
   rule: string;
   verdict: Verdict;
   message: string;
+  /** set when emergency access (`verfy breakglass`) waived this finding */
+  waived?: "breakglass";
 }
 
 export interface CheckResult {
@@ -16,6 +18,25 @@ export interface CheckResult {
   kind: string;
   tool: string;
   findings: Finding[];
+  /** observe mode (`"mode": "observe"`): what the rules would have answered; nothing was blocked */
+  would?: "ask" | "deny";
+  /** the emergency access window that let this through */
+  breakglass?: string;
+}
+
+/** Context a caller may pass to check(). */
+export interface CheckContext {
+  spent_today?: number;
+  spent_month?: number;
+  spent_payee_today?: number;
+  spent_category_today?: number;
+  spent_category_month?: number;
+  /** the agent asking (claude-code, cursor, mcp:<server>...), for a stop of one agent */
+  agent?: string;
+  /** ISO time, for emergency access windows (defaults to now) */
+  now?: string;
+  untrusted?: string;
+  [key: string]: unknown;
 }
 
 export interface Action {
@@ -68,7 +89,11 @@ export interface Engine {
   canonical(value: unknown): string;
   digest(value: unknown): Promise<string>;
   loadPolicy(user?: Policy | null, opts?: { home?: string; workspace?: string }): Policy;
-  check(action: Action, policy?: Policy | null, context?: Record<string, unknown>): CheckResult;
+  check(action: Action, policy?: Policy | null, context?: CheckContext): CheckResult;
+  /** Sort findings and set the verdict with emergency access and observe mode applied (after adding findings). */
+  settle(decision: CheckResult, policy: Policy, now?: string): CheckResult;
+  /** Why every action is blocked by a stop in the policy, or null. */
+  stopped(stop: unknown, agent: string): string | null;
   classify(tool: string, args: Record<string, unknown>): string;
   scan(data: unknown, server?: string, pins?: Record<string, string> | null): Promise<ScanReport>;
   toolPin(tool: Record<string, unknown>): Promise<string>;

@@ -220,7 +220,11 @@ class Gateway:
             return
         action = {"server": self.server, "tool": name, "arguments": args}
         meta = self.tool_meta.get(name)
-        decision = check(action, self.policy, {"spent_today": self.spent, "tool": meta, "known_tools": list(self.tool_meta), "untrusted": self.outside})
+        from . import spend
+        totals = spend.context(self.home, action.get("arguments") or {})
+        totals["spent_today"] = max(totals.get("spent_today", 0.0), self.spent)
+        decision = check(action, self.policy, {**totals, "tool": meta, "known_tools": list(self.tool_meta), "untrusted": self.outside,
+                                               "agent": "mcp:" + self.server})
         if name in self.imported:
             f = self.imported[name]
             decision["findings"] = [{"rule": "VFY-IMP-001", "verdict": "deny", "message": f"`{name}` is rated high by {f['source']} ({f['rule']}): {f['message'][:200]}"}, *decision.get("findings", [])]
@@ -317,11 +321,13 @@ class Gateway:
                 agent=self.policy.get("agent", "agent"), session=self.session, action=action, decision=decision,
                 outcome=outcome, policy_sha256=self.policy_sha, tool_sha256=meta.get("sha256"),
                 include_args=bool(self.policy.get("receipts", {}).get("include_args", False)),
+                fields=self.policy.get("receipts", {}).get("field_hashes") is True,
                 sandbox=sandboxes.running_in(self.command),
             )
         # `verfy sync` uploads the ledger in VERFY_HOME, so only that one is uploaded automatically
         if self.ledger.path == verfy_home() / "ledger.jsonl":
             teamlib.sync_soon(verfy_home())
+            teamlib.stop_soon(verfy_home())
         return receipt
 
     # ------------------------------------------------------------ server side
@@ -344,6 +350,8 @@ class Gateway:
                 r = self._receipt(action, decision, {"status": "error" if failed else "ok", "result_sha256": self.ledger.hash(result if result is not None else msg.get("error"))})
                 if decision["kind"] == "payment" and not failed:
                     self.spent += payment_amount(action["arguments"]) or 0
+                    from . import spend
+                    spend.add(self.home, action["arguments"], payment_amount(action["arguments"]))
                 self.log(f"{decision['verdict'].upper()} {self.server}/{action['tool']} -> {r['outcome']['status']} (receipt #{r['seq']})")
                 self._redact(msg, f"{self.server}/{action['tool']}")
             elif p and p[0] == "read":
