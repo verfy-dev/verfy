@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.27.0
+    rev: cli-v0.27.1
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.27.0" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.27.1" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -528,13 +528,13 @@ A web page or a tool's answer can carry instructions for the agent. Once a sessi
 { "session": { "after_outside_text": "hooks", "include_network": false } }
 ```
 
-- `"hooks"` (the default since 0.27.0): on in agents with hooks, where the agent puts the question to you. The MCP gateway leaves it alone, because nobody may be there to answer (`on_ask` is `deny` by default).
+- `"hooks"` (the default since 0.27.1): on in agents with hooks, where the agent puts the question to you. The MCP gateway leaves it alone, because nobody may be there to answer (`on_ask` is `deny` by default).
 - `"ask"`: also in the MCP gateway, where a server's answer counts as outside text. `"deny"` refuses instead of asking; the `strict` template sets it. `"off"` turns it off.
 - `"include_network": true` makes every request to a site not on `network.allow` wait too, not only uploads and pushes.
 
 ## Messages wait for a person
 
-A tool that sends a message (an email, a chat or channel post, with a recipient and a body) gets `ask`, rule VFY-MSG-001, since 0.27.0: it goes out under your name and cannot be taken back. Change it with `{ "messages": { "send": "allow" } }` (or `"deny"`), or list a tool you trust under `tools.trust`. In the MCP gateway, `ask` follows `on_ask`: with the default `deny` the message is refused and the reason says why; `"on_ask": "elicit"` asks you in clients that support it, `"team"` asks your team in Verfy Cloud.
+A tool that sends a message (an email, a chat or channel post, with a recipient and a body) gets `ask`, rule VFY-MSG-001, since 0.27.1: it goes out under your name and cannot be taken back. Change it with `{ "messages": { "send": "allow" } }` (or `"deny"`), or list a tool you trust under `tools.trust`. In the MCP gateway, `ask` follows `on_ask`: with the default `deny` the message is refused and the reason says why; `"on_ask": "elicit"` asks you in clients that support it, `"team"` asks your team in Verfy Cloud.
 
 ## What is on here
 

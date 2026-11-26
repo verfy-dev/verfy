@@ -126,8 +126,9 @@ def _variants(text: str) -> list[str]:
     return [v for v in dict.fromkeys(out) if v != text]
 
 
-# "Do not include API keys" is the opposite of asking for them: a match right after a negation is skipped
-NEGATION = re.compile(r"\b(?:do\s+not|don'?t|never|must\s+not|should\s+not|shouldn'?t|avoid|no)\s+(?:[A-Za-z']+\s+){0,2}$", re.IGNORECASE)
+# "Do not include API keys" is the opposite of asking for them: a match right after a negation is skipped. So is
+# "they neither include nor exclude secrets", a filter described by @azure-devops/mcp 2.9.0 (found by the research)
+NEGATION = re.compile(r"\b(?:do\s+not|don'?t|never|neither|must\s+not|should\s+not|shouldn'?t|avoid|no)\s+(?:[A-Za-z']+\s+){0,2}$", re.IGNORECASE)
 
 
 def _affirmed(pattern: "re.Pattern[str]", text: str) -> bool:
