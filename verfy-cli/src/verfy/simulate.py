@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterator
 
-from ._util import redact
+from ._util import scan_secrets
 from .hook import action_from_payload
 from .precheck import check
 
@@ -84,11 +84,22 @@ def simulate(actions: list[dict], current: dict, new: dict) -> dict:
     return {"v": "verfy.simulate/1", "total": len(actions), "before": dict(before), "after": dict(after), "changed": changed}
 
 
+def _mask(text: str) -> str:
+    """The text with every span that looks like a key or token replaced by "[hidden]"."""
+    out, last = [], 0
+    for start, end in sorted((h["start"], h["end"]) for h in scan_secrets(text, every=True)):
+        if start >= last:
+            out.append(text[last:start])
+            out.append("[hidden]")
+            last = end
+    return "".join(out) + text[last:]
+
+
 def _summary(action: dict) -> str:
     """A short line naming the action, with keys and tokens in it replaced (a command can carry one)."""
     args = action.get("arguments") or {}
     for k in ("command", "file_path", "path", "url", "query", "sql"):
         if isinstance(args.get(k), str):
-            v = redact(args[k]).replace("\n", " ")
+            v = _mask(args[k]).replace("\n", " ")
             return v if len(v) <= 100 else v[:97] + "..."
     return ", ".join(sorted(map(str, args)))[:100]
