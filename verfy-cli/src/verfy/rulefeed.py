@@ -159,9 +159,11 @@ def refresh_soon(home: Path, now: float | None = None, start: Any = None) -> boo
     refresh on (`verfy rules auto on`), or that is enrolled in Verfy Cloud with automatic upload and did not turn it
     off. Called by the hook after each receipt, so it never goes online itself and never raises."""
     try:
-        from .team import load_team
         home = Path(home)
-        team = load_team(home)
+        team = None
+        if (home / "team.json").exists():  # the team module (and its HTTP client) only for an enrolled device
+            from .team import load_team
+            team = load_team(home)
         on = auto(home)
         if on is False or (on is None and not (team and team.get("auto_sync") is True)):
             return False

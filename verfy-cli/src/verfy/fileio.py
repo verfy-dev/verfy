@@ -72,7 +72,10 @@ class FileLock:
             self.fh = None
 
 
-def atomic_write(path: str | os.PathLike, text: str, mode: int = 0o644) -> None:
+def atomic_write(path: str | os.PathLike, text: str, mode: int = 0o644, durable: bool = True) -> None:
+    """Write a whole file at once: readers see the old text or the new one, never half. ``durable=False`` skips the
+    flush to disk, for state that is only a cache (the hook writes some on every call, and a flush is slow on Windows):
+    after a power cut such a file may be older, never torn."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
@@ -80,7 +83,8 @@ def atomic_write(path: str | os.PathLike, text: str, mode: int = 0o644) -> None:
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
         f.flush()
-        os.fsync(f.fileno())
+        if durable:
+            os.fsync(f.fileno())
     for attempt in range(20):
         try:
             os.replace(tmp, p)

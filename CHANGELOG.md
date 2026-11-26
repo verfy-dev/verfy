@@ -2,6 +2,10 @@
 
 What changed in the Verfy CLI (`pip install verfy`) and the website. Newest first. Every CLI version is on [PyPI](https://pypi.org/project/verfy/#history) and as standalone builds on the [releases page](https://github.com/verfy-dev/verfy-releases/releases).
 
+## 0.28.1 (2026-11-26)
+
+- **The hook is about a third faster.** `verfy hook <event>` now loads only what the hook needs (new `entry.py` and `hookenv.py`; the `verfy` command starts at `verfy.entry:main`), `import verfy` loads its public names when they are first used, the HTTP client is loaded only by a device enrolled in a team, and the hook's own state files (scripts, adaptive) are no longer flushed to disk on every call; receipts still are. Measured on a Windows 11 laptop (12-core AMD, Python 3.14), a whole hook run with a signing key, from starting Python to the answer: median 419 ms in 0.28.0, 272 ms now. One check inside a running process (the gateway, the SDK) takes a median of 0.5 ms. `tests/test_fast_hook.py` checks that the short path answers exactly as the full CLI does.
+
 ## 0.28.0 (2026-11-26)
 
 - **Inline code can no longer switch Verfy off with a question you might approve.** `python -c`, `node -e` and other one-liners that write, move or delete a hook settings file, `verfy.lock`, the policy or the Verfy install are denied (VFY-SELF-005, was ask); one that only names such a file still asks. Inline code that names an MCP config (`.mcp.json`, `.codex/config.toml`, Claude Desktop's config, ...) now asks; before, a one-liner writing `~/.codex/config.toml` through `pathlib` was allowed. An edit that takes Verfy out of an MCP config is denied (VFY-SELF-002); other edits there still ask.

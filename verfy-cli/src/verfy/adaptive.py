@@ -251,7 +251,7 @@ class State:
         with FileLock(self.path, timeout=10.0):
             data = self._read()
             result = fn(data)
-            atomic_write(self.path, json.dumps(data, separators=(",", ":")) + "\n", mode=0o600)
+            atomic_write(self.path, json.dumps(data, separators=(",", ":")) + "\n", mode=0o600, durable=False)
             return result
 
     def snapshot(self) -> dict:
