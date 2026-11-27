@@ -105,6 +105,12 @@ export interface Engine {
   /** The package a stdio server is started from (npx, uvx, ...), also behind a Verfy gateway; `name` is it without the version. */
   packageOf(spec: Record<string, unknown>): { index: number; ecosystem: "npm" | "pypi"; package: string; name: string } | null;
   checkConfig(data: unknown, local?: string[] | null): ConfigReport;
+  /** The challenge a passkey signs to approve or reject one request (verfy-approval/1). */
+  approvalChallenge(approvalId: string, argsSha256: string, approve: boolean, userId: string): Promise<string>;
+  /** Problems with one passkey proof (verfy.approval-proof/1); an empty list means it signed this approval of these arguments. */
+  verifyApprovalProof(proof: unknown, approvalId: string, argsSha256: string, origin: string): Promise<string[]>;
+  /** Every passkey proof in a ledger's decision.approval, checked; `checked` counts receipts that carry one. */
+  checkApprovals(receipts: unknown[]): Promise<{ checked: number; errors: { index: number; seq: unknown; error: string }[] }>;
 }
 
 export function createEngine(patterns: unknown, defaultPolicy: unknown): Engine;

@@ -126,6 +126,25 @@ async function main() {
   expect("hash-only by default", [hashOnly.action.args, hashOnly.action.args_sha256.slice(0, 7)], [undefined, "sha256:"]);
   expect("redacted args", sr.action.args.body, "[REDACTED:github-token]");
 
+  // passkey approvals: the proofs node:crypto made (tests/make_passkey_vectors.mjs), as verfy/passkeys.py checks them
+  const PK = readJson(path.join(FX, "passkey_proofs.json"));
+  const chk = (p, o = {}) => K.verifyApprovalProof(p, o.id ?? PK.approval_id, o.args ?? PK.args_sha256, o.origin ?? PK.origin);
+  for (const p of PK.proofs) expect("passkey proof alg " + p.alg + " " + p.decision, await chk(p), []);
+  const es = PK.proofs[0];
+  expect("passkey other args", (await chk(es, { args: "sha256:" + "00".repeat(32) })).includes("the passkey signed a different request, arguments or decision"), true);
+  expect("passkey other site", await chk(es, { origin: "https://evil.example" }), ["the passkey was used on 'https://verfy.dev', not 'https://evil.example'", "the passkey belongs to another site"]);
+  expect("passkey flipped decision", (await chk({ ...es, decision: "reject" })).includes("the passkey signed a different request, arguments or decision"), true);
+  for (const p of PK.proofs.slice(0, 3)) {
+    const sig = K.unb64u(p.signature); sig[sig.length - 1] ^= 1;
+    expect("passkey forged " + p.alg, await chk({ ...p, signature: K.b64u(sig) }), ["the passkey's signature does not check out"]);
+  }
+  expect("passkey unknown alg", await chk({ ...es, alg: -999 }), ["unknown key type -999"]);
+  expect("passkey not a proof", await chk({ v: "x" }), ["not a Verfy passkey proof"]);
+  const ledger = [{ seq: 0, action: { args_sha256: PK.args_sha256 }, decision: { approval: { id: PK.approval_id, origin: PK.origin, proofs: [PK.proofs[1]] } } }, { seq: 1, decision: {} }];
+  expect("passkey ledger", await K.checkApprovals(ledger), { checked: 1, errors: [] });
+  ledger[0].action.args_sha256 = "sha256:" + "11".repeat(32);
+  expect("passkey ledger other args", (await K.checkApprovals(ledger)).errors.map((e) => e.error), ["passkey approval: the passkey signed a different request, arguments or decision"]);
+
   console.log((failures ? "FAILED" : "OK") + "  " + passed + " passed, " + failures + " failed");
   process.exit(failures ? 1 : 0);
 }

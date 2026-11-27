@@ -11,6 +11,9 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde_json::{Map, Number, Value};
 use sha2::{Digest as _, Sha256};
 
+pub mod approval;
+pub use approval::{approval_challenge, check_approvals, verify_approval_proof};
+
 /// The receipt format this crate checks.
 pub const VERSION: &str = "verfy.receipt/1";
 

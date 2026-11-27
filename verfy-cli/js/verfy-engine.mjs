@@ -1642,6 +1642,104 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     }
     return { ok: !errors.length, count: receipts.length, head: prev, errors: errors };
   }
+  /* ============================================================ passkey approvals (verfy.approval-proof/1)
+   * The same checks as verfy/passkeys.py: the challenge binds the request id, the receipt's args_sha256 and the
+   * decision; the origin and relying party; that the person was verified (UV); the signature (ES256 and RS256 with
+   * WebCrypto, EdDSA with the Ed25519 above). Messages match the Python ones. */
+  async function approvalChallenge(approvalId, argsSha256, approve, userId) {
+    var text = "verfy-approval/1\n" + approvalId + "\n" + argsSha256 + "\n" + (approve ? "approve" : "reject") + "\n" + userId;
+    return b64u(new Uint8Array(await subtle.digest("SHA-256", enc.encode(text))));
+  }
+  function derToRaw(der) {
+    // ASN.1 SEQUENCE { INTEGER r, INTEGER s } with short lengths -> r || s, 32 bytes each
+    if (der.length < 8 || der[0] !== 0x30 || der[1] !== der.length - 2) return null;
+    var out = new Uint8Array(64), i = 2;
+    for (var k = 0; k < 2; k++) {
+      if (i + 2 > der.length || der[i] !== 0x02) return null;
+      var n = der[i + 1];
+      if (n === 0 || n > 33 || i + 2 + n > der.length) return null;
+      var v = der.slice(i + 2, i + 2 + n);
+      while (v.length > 32 && v[0] === 0) v = v.slice(1);
+      if (v.length > 32) return null;
+      out.set(v, k * 32 + 32 - v.length);
+      i += 2 + n;
+    }
+    return i === der.length ? out : null;
+  }
+  async function verifyPasskeySig(alg, jwk, msg, sig) {
+    try {
+      if (alg === -8) {
+        if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519") return false;
+        var pub = unb64u(jwk.x);
+        return pub.length === 32 && sig.length === 64 && (await ed25519.verify(pub, msg, sig));
+      }
+      if (alg === -7) {
+        if (jwk.kty !== "EC" || jwk.crv !== "P-256") return false;
+        var raw = derToRaw(sig);
+        if (!raw) return false;
+        var ek = await subtle.importKey("jwk", { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y, ext: true }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+        return await subtle.verify({ name: "ECDSA", hash: "SHA-256" }, ek, raw, msg);
+      }
+      if (alg === -257) {
+        if (jwk.kty !== "RSA" || unb64u(jwk.n).length < 256) return false;
+        var rk = await subtle.importKey("jwk", { kty: "RSA", n: jwk.n, e: jwk.e, ext: true }, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+        return await subtle.verify("RSASSA-PKCS1-v1_5", rk, sig, msg);
+      }
+    } catch (e) {
+      return false;
+    }
+    return false;
+  }
+  function pyRepr(v) { return typeof v === "string" ? "'" + v + "'" : v === undefined || v === null ? "None" : JSON.stringify(v); }
+  async function verifyApprovalProof(proof, approvalId, argsSha256, origin) {
+    if (!isObj(proof) || proof.v !== "verfy.approval-proof/1" || proof.method !== "passkey") return ["not a Verfy passkey proof"];
+    if (proof.decision !== "approve" && proof.decision !== "reject") return ["the proof names no decision"];
+    var clientRaw, auth, sig, client;
+    try {
+      clientRaw = unb64u(proof.client_data_json); auth = unb64u(proof.authenticator_data); sig = unb64u(proof.signature);
+      if (!clientRaw.length || !auth.length || !sig.length) throw new Error("empty");
+      client = JSON.parse(new TextDecoder().decode(clientRaw));
+    } catch (e) {
+      return ["the proof is not readable"];
+    }
+    var problems = [];
+    var want = await approvalChallenge(approvalId, argsSha256, proof.decision === "approve", String(proof.user_id === undefined ? "" : proof.user_id));
+    if (!isObj(client) || client.type !== "webauthn.get") problems.push("the browser answered a different WebAuthn call");
+    else if (client.challenge !== want) problems.push("the passkey signed a different request, arguments or decision");
+    if (isObj(client) && client.origin !== origin) problems.push("the passkey was used on " + pyRepr(client.origin) + ", not " + pyRepr(origin));
+    if (isObj(client) && client.crossOrigin === true) problems.push("the passkey was used inside another site's frame");
+    var rp = "";
+    try { rp = new URL(origin).hostname; } catch (e) { rp = ""; }
+    var rpHash = new Uint8Array(await subtle.digest("SHA-256", enc.encode(rp)));
+    if (auth.length < 37 || hex(auth.slice(0, 32)) !== hex(rpHash)) problems.push("the passkey belongs to another site");
+    else if (!(auth[32] & 0x01)) problems.push("nobody touched the passkey");
+    else if (!(auth[32] & 0x04)) problems.push("the passkey did not verify the person (Face ID, fingerprint or PIN)");
+    var alg = proof.alg, jwk = isObj(proof.public_key) ? proof.public_key : {};
+    if (alg !== -7 && alg !== -8 && alg !== -257) problems.push("unknown key type " + (typeof alg === "number" ? String(alg) : pyRepr(alg)));
+    else {
+      var signed = new Uint8Array(auth.length + 32);
+      signed.set(auth, 0);
+      signed.set(new Uint8Array(await subtle.digest("SHA-256", clientRaw)), auth.length);
+      if (!(await verifyPasskeySig(alg, jwk, signed, sig))) problems.push("the passkey's signature does not check out");
+    }
+    return problems;
+  }
+  // every passkey proof in a ledger; `checked` counts receipts that carry at least one
+  async function checkApprovals(receipts) {
+    var checked = 0, errors = [];
+    for (var i = 0; i < receipts.length; i++) {
+      var r = receipts[i], appr = isObj(r) && isObj(r.decision) ? r.decision.approval : null;
+      if (!isObj(appr) || !Array.isArray(appr.proofs) || !appr.proofs.length) continue;
+      checked++;
+      var args = isObj(r.action) && r.action.args_sha256 ? String(r.action.args_sha256) : "";
+      for (var j = 0; j < appr.proofs.length; j++) {
+        var ps = await verifyApprovalProof(appr.proofs[j], String(appr.id === undefined ? "" : appr.id), args, String(appr.origin === undefined ? "" : appr.origin));
+        ps.forEach(function (p) { errors.push({ index: i, seq: r.seq, error: "passkey approval: " + p }); });
+      }
+    }
+    return { checked: checked, errors: errors };
+  }
+
   function parseLedger(text) {
     return String(text).split(/\r?\n/).filter(function (l) { return l.trim(); }).map(function (l, i) {
       try { return JSON.parse(l); } catch (e) { throw new Error("line " + (i + 1) + " is not valid JSON"); }
@@ -1877,6 +1975,7 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     scanSecrets: scanSecrets, redactValue: redactValue, paymentAmount: paymentAmount,
     checkServer: checkServer, configServers: configServers, checkConfig: checkConfig, packageOf: packageOf,
     ed25519: ed25519, b64u: b64u, unb64u: unb64u, keyId: keyId, generateKey: generateKey, keyFromSecret: keyFromSecret,
-    signReceipt: signReceipt, verifyReceipt: verifyReceipt, buildReceipt: buildReceipt, verifyLedger: verifyLedger, parseLedger: parseLedger
+    signReceipt: signReceipt, verifyReceipt: verifyReceipt, buildReceipt: buildReceipt, verifyLedger: verifyLedger, parseLedger: parseLedger,
+    approvalChallenge: approvalChallenge, verifyApprovalProof: verifyApprovalProof, checkApprovals: checkApprovals
   };
 }

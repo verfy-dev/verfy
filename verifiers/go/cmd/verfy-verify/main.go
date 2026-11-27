@@ -30,8 +30,15 @@ func main() {
 		os.Exit(2)
 	}
 	res := verfy.VerifyLedger(receipts, pub)
+	// team approvals made with a passkey carry its signature over that call's arguments hash
+	checked, approvalProblems := verfy.CheckApprovals(receipts)
+	res.Errors = append(res.Errors, approvalProblems...)
+	res.OK = len(res.Errors) == 0
 	if res.OK {
 		fmt.Printf("VERIFIED  %d receipts, signed by %s, chain intact.  head %s\n", res.Count, verfy.KeyID(pub), res.Head)
+		if checked > 0 {
+			fmt.Printf("          %d team approval(s) signed with a passkey: each signature covers that call's arguments hash.\n", checked)
+		}
 		return
 	}
 	fmt.Printf("FAILED  %d problem(s) in %d receipts:\n", len(res.Errors), res.Count)
