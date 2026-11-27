@@ -104,6 +104,14 @@ jobs:
         with:
           name: dist
           path: dist/
+      # the JavaScript recorder as an npm tarball, installable without the npm registry:
+      # npm install https://github.com/verfy-dev/verfy/releases/download/cli-vX.Y.Z/verfy-dev-receipts-X.Y.Z.tgz
+      - name: Pack the JavaScript recorder
+        run: |
+          node scripts/build-npm.mjs dist/npm
+          (cd dist/npm && npm pack --pack-destination ..)
+          rm -rf dist/npm
+          ls -l dist
       - run: cd dist && sha256sum verfy-* > SHA256SUMS && cat SHA256SUMS
       - uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9 # v3.5.0
         with:

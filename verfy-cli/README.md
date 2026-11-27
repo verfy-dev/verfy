@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.29.0
+    rev: cli-v0.30.0
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.29.0" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.30.0" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -390,7 +390,7 @@ const tools = withVerfy({ refund: tool({ description, inputSchema, execute }) },
 await generateText({ model, tools, prompt });
 ```
 
-`node scripts/build-npm.mjs` builds both as the npm package `@verfy-dev/receipts` (with types), not yet published.
+Each release carries both as the npm package `@verfy-dev/receipts` (with types), as a file you install without the npm registry: `npm install https://github.com/verfy-dev/verfy/releases/download/cli-v0.30.0/verfy-dev-receipts-0.30.0.tgz`. `node scripts/build-npm.mjs` builds it from the repository.
 
 ### Deals two agents sign, and payments tied to a mandate
 
@@ -650,7 +650,8 @@ verfy evidence --framework all --out evidence.zip  # SOC 2, ISO/IEC 42001, AIUC-
 verfy export --format ocsf > events.jsonl          # OCSF 1.3.0 API Activity, for a SIEM
 verfy export --format acta --out acta.jsonl        # IETF draft-farley-acta-signed-receipts-04
 verfy export --format aar --out aar.jsonl          # IETF draft-sahu-agent-action-receipts-00
-verfy dispute open --seq 12 --claim "The agent refunded the wrong order."
+verfy dispute open --seq 12 --claim "The agent refunded the wrong order." --out dispute.json
+verfy dispute send dispute.json                    # to your team's Disputes page in Verfy Cloud, where you name who decides
 ```
 
 Go and Rust libraries that check a ledger live in [`verifiers/`](../verifiers/README.md), next to Python and
