@@ -232,6 +232,162 @@
    }
   },
   {
+   "name": "five phone numbers at once",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "+998 90 123 45 67, +1 (415) 555-0100, +44 20 7946 0958, +49 30 901820, (212) 555-0199"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "network",
+    "findings": [
+     {
+      "rule": "VFY-DLP-006",
+      "verdict": "ask",
+      "message": "Would send 5 phone numbers out of this computer at once."
+     }
+    ]
+   }
+  },
+  {
+   "name": "four phone numbers are not a list",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "+998 90 123 45 67, +1 415 555 0100, +44 20 7946 0958, +49 30 901820"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "findings": []
+   }
+  },
+  {
+   "name": "the same phone number five times is one",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "+1 415 555 0100; +1 (415) 555-0100; +14155550100; +1-415-555-0100; +1.415.555.0100"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "findings": []
+   }
+  },
+  {
+   "name": "dates and versions are not phone numbers",
+   "action": {
+    "tool": "http_post",
+    "arguments": {
+     "url": "https://api.example.com",
+     "body": "2026-11-28 1.2.3 v10.20.30 123-45-678 build 20261128"
+    }
+   },
+   "policy": {
+    "dlp": {
+     "bulk": 1
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "allow",
+    "kind": "network",
+    "findings": []
+   }
+  },
+  {
+   "name": "passport machine-readable zone",
+   "action": {
+    "tool": "send_email",
+    "arguments": {
+     "to": "a@example.com",
+     "body": "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "message",
+    "findings": [
+     {
+      "rule": "VFY-DLP-007",
+      "verdict": "ask",
+      "message": "Would send a passport's machine-readable zone (document number, birth date) out of this computer (in `body`)."
+     },
+     {
+      "rule": "VFY-MSG-001",
+      "verdict": "ask",
+      "message": "Sends a message with `send_email`, which goes out under your name, so a person approves it first."
+     }
+    ]
+   }
+  },
+  {
+   "name": "passport zone with a wrong check digit",
+   "action": {
+    "tool": "send_email",
+    "arguments": {
+     "to": "a@example.com",
+     "body": "L898902C37UTO7408122F1204159ZE184226B<<<<<10"
+    }
+   },
+   "policy": {},
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "message",
+    "findings": [
+     {
+      "rule": "VFY-MSG-001",
+      "verdict": "ask",
+      "message": "Sends a message with `send_email`, which goes out under your name, so a person approves it first."
+     }
+    ]
+   }
+  },
+  {
+   "name": "passport zone, personal data off",
+   "action": {
+    "tool": "send_email",
+    "arguments": {
+     "to": "a@example.com",
+     "body": "L898902C36UTO7408122F1204159ZE184226B<<<<<10"
+    }
+   },
+   "policy": {
+    "dlp": {
+     "personal": "off"
+    }
+   },
+   "context": {},
+   "expect": {
+    "verdict": "ask",
+    "kind": "message",
+    "findings": [
+     {
+      "rule": "VFY-MSG-001",
+      "verdict": "ask",
+      "message": "Sends a message with `send_email`, which goes out under your name, so a person approves it first."
+     }
+    ]
+   }
+  },
+  {
    "name": "bulk 3",
    "action": {
     "tool": "http_post",

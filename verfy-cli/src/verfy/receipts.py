@@ -182,6 +182,8 @@ def build_receipt(*, seq: int, prev: str | None, agent: str, session: str, actio
             "rules": [f["rule"] for f in decision.get("findings", [])],
             "policy_sha256": policy_sha256,
             **({"approved_by": decision["approved_by"]} if decision.get("approved_by") else {}),
+            # 0.31.0: a team approval, with the approvers' passkey signatures over this call (passkeys.py)
+            **({"approval": decision["approval"]} if isinstance(decision.get("approval"), dict) else {}),
             # observe mode: what would have happened; emergency access: the window that let it through (control.py)
             **({"would": decision["would"]} if decision.get("would") in ("ask", "deny") else {}),
             **({"breakglass": str(decision["breakglass"])[:100]} if decision.get("breakglass") else {}),

@@ -1,0 +1,74 @@
+{
+ "note": "made by tests/make_passkey_vectors.mjs with node:crypto",
+ "origin": "https://verfy.dev",
+ "approval_id": "11111111-2222-4333-8444-555555555555",
+ "args_sha256": "sha256:abababababababababababababababababababababababababababababababab",
+ "proofs": [
+  {
+   "v": "verfy.approval-proof/1",
+   "method": "passkey",
+   "decision": "approve",
+   "user_id": "00000000-0000-4000-8000-0000000000a1",
+   "credential_id": "Y3JlZGVudGlhbC0tNw",
+   "alg": -7,
+   "public_key": {
+    "kty": "EC",
+    "x": "lPi0x47Dnk34B27aAXsFT2AplSK7cO5wDNwRauM4Va8",
+    "y": "WlXYrKKEHbzsfZYLSbxrNj6R6dIbrCLMjUDlpmN6f40",
+    "crv": "P-256"
+   },
+   "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoicDR2QW00NDdCaG93UmZfbVdkU1ZkdHFHd1FESmdCNVFCaTJYUWM5WDhmUSIsIm9yaWdpbiI6Imh0dHBzOi8vdmVyZnkuZGV2IiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+   "authenticator_data": "vZz-VRJxPKxAzsDgJRntUtBByFkn7lUuwSxjjxESf_EFAAAABw",
+   "signature": "MEYCIQDT-WQcprNvE1xbVQ9SdXS6hdYPVfO9tJJ5bcTAR4mobQIhAIPcZE73pEMPkFAkyjFU6UTsT8U7t6-n2m4uyT3MMTxi"
+  },
+  {
+   "v": "verfy.approval-proof/1",
+   "method": "passkey",
+   "decision": "approve",
+   "user_id": "00000000-0000-4000-8000-0000000000a1",
+   "credential_id": "Y3JlZGVudGlhbC0tOA",
+   "alg": -8,
+   "public_key": {
+    "crv": "Ed25519",
+    "x": "Fseuz4fdB43kmKYrR1Oc4C--MVNqEVDpHQpzKxcSuNY",
+    "kty": "OKP"
+   },
+   "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoicDR2QW00NDdCaG93UmZfbVdkU1ZkdHFHd1FESmdCNVFCaTJYUWM5WDhmUSIsIm9yaWdpbiI6Imh0dHBzOi8vdmVyZnkuZGV2IiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+   "authenticator_data": "vZz-VRJxPKxAzsDgJRntUtBByFkn7lUuwSxjjxESf_EFAAAABw",
+   "signature": "SE47DFbuHm3NMWRlUN3k5BrkEjdljaQSAfKKxijAdUuQUxaqcPOdQZ0L1K-t_eOlhW6PcsSBMVU_a0V1oyqQCA"
+  },
+  {
+   "v": "verfy.approval-proof/1",
+   "method": "passkey",
+   "decision": "approve",
+   "user_id": "00000000-0000-4000-8000-0000000000a1",
+   "credential_id": "Y3JlZGVudGlhbC0tMjU3",
+   "alg": -257,
+   "public_key": {
+    "kty": "RSA",
+    "n": "3zT_FuYI_uJ9L5JUdsgTExmB0CCJMUEXysrsRy4dEWZqEvxfV_auJ6yOYZwAKnkN_hf8cDY09HAz8jPqYzp6BnRgaFTCMLppaSTf6ok9bm4ZAF9CTZZU-343Nw6ndhFVPM7CyG5RH-rdKk_0wH_AHfxOmJJDoz8YdLODyUbloUeFOn2pou8X55udoj7xwWheZZS8x4a5IlLdRfzs-67jAUisXAADe3Lu51NlumC5ZetXH-7CWCOH52s1EvjazXDj9d62sRWk6qjVzUBDi6Ois66QC8p_m6HvJ955urnQIbdMDRdKNZEeNm_e6Lk5BeB7gHK1iJsJuW8YCsY1xPyLuQ",
+    "e": "AQAB"
+   },
+   "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoicDR2QW00NDdCaG93UmZfbVdkU1ZkdHFHd1FESmdCNVFCaTJYUWM5WDhmUSIsIm9yaWdpbiI6Imh0dHBzOi8vdmVyZnkuZGV2IiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+   "authenticator_data": "vZz-VRJxPKxAzsDgJRntUtBByFkn7lUuwSxjjxESf_EFAAAABw",
+   "signature": "TJMwewhCyTxy9c8f2tK8QI6v5eMDUO5ZeFhg_xDapXcR6ecsvhu5lDngKP-nglmqHJKfS4onqv7q4OFPB2qEB7LJh_vMRZo5qCLvZr8m7zjXFAoqdvMkMBTl1DYrKb5CYet2hYzRlr5mA0DYj6GLiLvs5cJUmzr3-rct3mwKmJO_TvXIGhv4GI1cCRcPMf-UDm_cF1mn4Dz4RPnznBpwaJsoMhJbwAK1cxq2z64Jhf3XxWNURyv75V3xFVBUHGNFbQn2wogoNk5y9CRjCwk4LpW-l74YS5bm9ybmc781IrtVSulHmgpI2jwZWq9-78JVYTubRqdEUyvtuBTydt0MzQ"
+  },
+  {
+   "v": "verfy.approval-proof/1",
+   "method": "passkey",
+   "decision": "reject",
+   "user_id": "00000000-0000-4000-8000-0000000000a1",
+   "credential_id": "Y3JlZGVudGlhbC0tNw",
+   "alg": -7,
+   "public_key": {
+    "kty": "EC",
+    "x": "EecDRBJj41a6B-W6ZlB_uLzEkNWrqWmS66oz-ixc8k8",
+    "y": "AamtMqkDYJfFBV3Fy5VVkEqWa5NPFyPGm_wKb9xWeyQ",
+    "crv": "P-256"
+   },
+   "client_data_json": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiZm5qMGpOckt3S0taaW5WNzFRWWlrcmx3WEoyaWtieXZ1N292V0hmR3FCQSIsIm9yaWdpbiI6Imh0dHBzOi8vdmVyZnkuZGV2IiwiY3Jvc3NPcmlnaW4iOmZhbHNlfQ",
+   "authenticator_data": "vZz-VRJxPKxAzsDgJRntUtBByFkn7lUuwSxjjxESf_EFAAAABw",
+   "signature": "MEQCIGGMb5StcODxX18o8e6eajmFb_txd1yEy2ohMif4F-fwAiA6R6Q5eMtHEYvCSzvn6mkn3xXiuPsqQUIdgF5VH3Vihg"
+  }
+ ]
+}

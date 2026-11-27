@@ -318,7 +318,7 @@ class Recorder:
         if res["verdict"] == "deny":
             self._refuse(action, system=system, kind=kind, args=args, session=session, verdict="deny", findings=res["findings"],
                          status="blocked", why="; ".join(f["message"] for f in res["findings"] if f["verdict"] == "deny"))
-        approver, why = self._ask(action, system=system, kind=kind, args=args, findings=res["findings"])
+        approver, why, approval = self._ask(action, system=system, kind=kind, args=args, findings=res["findings"])
         if not approver:
             self._refuse(action, system=system, kind=kind, args=args, session=session, verdict="ask", findings=res["findings"],
                          status="declined", why=why)
@@ -332,7 +332,10 @@ class Recorder:
         if now["verdict"] == "deny":
             self._refuse(action, system=system, kind=kind, args=args, session=session, verdict="deny", findings=now["findings"],
                          status="blocked", why="; ".join(f["message"] for f in now["findings"] if f["verdict"] == "deny"))
-        return {"verdict": "ask", "findings": now["findings"], "approved_by": str(approver)[:APPROVER_MAX]}
+        out = {"verdict": "ask", "findings": now["findings"], "approved_by": str(approver)[:APPROVER_MAX]}
+        if approval:
+            out["approval"] = approval  # the team approval and its passkey proofs, for the receipt
+        return out
 
     def delegate(self, *, to_public: str | bytes, to_agent: str, rules: list | None = None, tools: list[str] | None = None,
                  minutes: int = 60) -> dict:
@@ -358,21 +361,21 @@ class Recorder:
             stop = {**stop, "all": team["all"]}
         return stopped(stop, self.agent) if stop else None
 
-    def _ask(self, action: str, *, system: str, kind: str, args: Any, findings: list[dict]) -> tuple[str | None, str]:
-        """Who approved the action, or None and why not."""
+    def _ask(self, action: str, *, system: str, kind: str, args: Any, findings: list[dict]) -> tuple[str | None, str, dict | None]:
+        """Who approved the action (or None and why not), and for a team approval its record with any passkey proofs."""
         asked = [f for f in findings if f["verdict"] == "ask"]
         if callable(self.on_ask):
             try:
                 answer = self.on_ask({"agent": self.agent, "action": action, "system": system, "kind": kind, "args": args, "findings": asked})
             except Exception as e:  # noqa: BLE001 (a failing approver approves nothing)
-                return None, f"the approval function failed: {type(e).__name__}"
+                return None, f"the approval function failed: {type(e).__name__}", None
             if answer is True:
-                return "callback", ""
+                return "callback", "", None
             if isinstance(answer, str) and answer.strip():
-                return answer.strip(), ""
-            return None, "not approved"
+                return answer.strip(), "", None
+            return None, "not approved", None
         if self.on_ask != "team":
-            return None, "a rule says to ask, and on_ask is deny: " + "; ".join(f["message"] for f in asked)
+            return None, "a rule says to ask, and on_ask is deny: " + "; ".join(f["message"] for f in asked), None
         try:
             req = teamlib.request_approval(self.home, system or "app", action, kind, self._ledger.hash(args), findings,
                                            self.approval_timeout, transport=self._team_transport)
@@ -382,11 +385,12 @@ class Recorder:
                 time.sleep(POLL_SECONDS)
                 state = teamlib.approval_status(self.home, req["id"], transport=self._team_transport)
         except (teamlib.TeamError, OSError, ValueError, KeyError) as e:
-            return None, f"Verfy could not reach your team to approve it ({e})"
+            return None, f"Verfy could not reach your team to approve it ({e})", None
         if state.get("status") == "approved":
-            return "team:" + str(state.get("decided_by") or "admin")[:90], ""
+            from .passkeys import approval_record
+            return "team:" + str(state.get("decided_by") or "admin")[:90], "", approval_record(req["id"], state, teamlib.team_url(self.home))
         return None, {"rejected": "your team rejected it", "expired": "nobody on your team approved it in time"}.get(
-            str(state.get("status")), "your team did not approve it") + (f" ({state['note']})" if state.get("note") else "")
+            str(state.get("status")), "your team did not approve it") + (f" ({state['note']})" if state.get("note") else ""), None
 
     def _refuse(self, action: str, *, system: str, kind: str, args: Any, session: str | None, verdict: str,
                 findings: list[dict], status: str, why: str) -> None:
@@ -415,7 +419,7 @@ class Recorder:
         receipt = self._write(action, system=system, kind=kind, args=jsonable(args if args is not None else {}),
                               result=None if result is None else jsonable(result), status=status, session=session,
                               approved_by=approved_by, include_args=self.include_args if include_args is None else bool(include_args),
-                              verdict=verdict, rules=rules, policy_sha=policy_sha)
+                              verdict=verdict, rules=rules, policy_sha=policy_sha, approval=(decision or {}).get("approval"))
         self._after_write()
         return receipt
 
@@ -446,7 +450,7 @@ class Recorder:
 
     def _write(self, action: str, *, system: str, kind: str, args: Any, result: Any, status: str, session: str | None,
                approved_by: str | None, include_args: bool, verdict: str = "allow", rules: list[str] | None = None,
-               policy_sha: str = RECORD_POLICY) -> dict:
+               policy_sha: str = RECORD_POLICY, approval: dict | None = None) -> dict:
         action = _text("action", action, required=True)
         system = _text("system", system)
         if not isinstance(kind, str) or not _KIND.match(kind):
@@ -460,6 +464,8 @@ class Recorder:
         decision: dict[str, Any] = {"verdict": verdict, "kind": kind, "findings": [{"rule": r} for r in (rules or [])][:100]}
         if approved_by is not None:
             decision["approved_by"] = _text("approved_by", approved_by, required=True, limit=APPROVER_MAX)
+            if isinstance(approval, dict):
+                decision["approval"] = approval
         nodes = _check_tree("args", args, stored=include_args)
         if result is not None:
             _check_tree("result", result, stored=False)

@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.30.0
+    rev: cli-v0.31.0
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -192,7 +192,7 @@ A remote server goes behind the gateway through `verfy bridge`, which forwards t
 
 The gateway scans each `tools/list` answer, hides poisoned or drifted tools, checks every `tools/call`, can ask the user through MCP elicitation (`"on_ask": "elicit"`), and writes a receipt for every call. Secrets in tool results and resources (API keys, tokens, private keys in the formats the scanner knows) are replaced with `[REDACTED:<rule>]` before the agent reads them; the receipt keeps the hash of the original result. Set `"redact_output": false` to turn this off.
 
-With `"on_ask": "team"` (device enrolled in Verfy Cloud), a call that needs approval waits in Dashboard → Approvals until an owner or admin decides, for at most `"approval_timeout"` seconds (default 120, 10 to 900). The request carries the tool, the rules that asked and the SHA-256 of the arguments, never the arguments. A rejection, no answer in time or an unreachable server refuses the call; the receipt records `approved_by: "team:<name>"` when it runs. The Claude Code hook never waits on the network, so this works through the gateway only.
+With `"on_ask": "team"` (device enrolled in Verfy Cloud), a call that needs approval waits in Dashboard → Approvals until an owner or admin decides, for at most `"approval_timeout"` seconds (default 120, 10 to 900). The request carries the tool, the rules that asked and the SHA-256 of the arguments, never the arguments. A rejection, no answer in time or an unreachable server refuses the call; the receipt records `approved_by: "team:<name>"` when it runs. When the approver used a passkey (Face ID, a fingerprint, a security key), the receipt also carries `decision.approval` with the passkey's signature over that request, the arguments' hash and the decision, and `verfy verify` checks it offline. The Claude Code hook never waits on the network, so this works through the gateway only.
 
 ## Scan
 
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.30.0" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.31.0" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -635,7 +635,8 @@ decided by the written rule. `verfy rule explain` lists the forms.
 ```
 
 Card numbers (Luhn-checked), IBANs (check digits), US social security numbers, five or more email addresses at
-once, and your own patterns ask before they leave in a request, message, upload or browser input (VFY-DLP-001..005).
+once, a passport's machine-readable zone, many phone numbers at once, and your own patterns ask before they leave in a request, message, upload or
+browser input (VFY-DLP-001..007).
 A click on "Place order", "Pay", "Subscribe" and the like asks, and so does typing into a password, card or one-time
 code field (VFY-WEB-001, 002). Payments get monthly, per-merchant and per-category limits (VFY-PAY-007..009).
 
