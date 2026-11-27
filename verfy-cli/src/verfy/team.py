@@ -354,6 +354,12 @@ def _client(home: Path, transport: Transport | None = None) -> TeamClient:
     return TeamClient(team["url"], team["token"], transport=transport, retries=2)
 
 
+def send_dispute(home: Path, record: dict, transport: Transport | None = None) -> dict:
+    """Put a record from `verfy dispute open` on the team's Disputes page in Verfy Cloud, where an owner or admin can
+    name an arbitrator. The record is sent whole: its claim, its findings and the one receipt it is about."""
+    return _client(home, transport).call("POST", "/api/v1/disputes", {"record": record})
+
+
 SHARE_KINDS = ("receipt", "agent")
 
 

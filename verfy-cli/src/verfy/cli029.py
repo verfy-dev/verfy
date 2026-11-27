@@ -358,12 +358,27 @@ def cmd_dispute(args) -> int:
     from . import dispute
     from .receipts import read_ledger
     cli = _cli()
-    if args.action == "verify":
-        res = dispute.verify_dispute(json.loads(Path(args.file).read_text("utf-8")))
+    if args.action in ("verify", "send"):
+        if not args.file:
+            print(f"usage: verfy dispute {args.action} FILE", file=sys.stderr)
+            return 2
+        doc = json.loads(Path(args.file).read_text("utf-8"))
+        res = dispute.verify_dispute(doc)
         print(("VERIFIED" if res["ok"] else "FAILED") + f"  finding: {res.get('finding')}")
         for p in res["problems"]:
             print("  " + p)
-        return 0 if res["ok"] else 1
+        if args.action == "verify" or not res["ok"]:
+            return 0 if res["ok"] else 1
+        from . import team
+        try:
+            sent = team.send_dispute(cli.verfy_home(), doc)
+        except team.TeamError as e:
+            print(f"verfy: {e}", file=sys.stderr)
+            return 1
+        enrolled = "an enrolled device of your team" if sent.get("signer_enrolled") else "a key that is not an enrolled device of your team"
+        print(f"Sent to Verfy Cloud ({sent.get('id')}); signed by {enrolled}.")
+        print("An owner or admin names the person who decides under Disputes. Verfy does not judge.")
+        return 0
     doc = dispute.open_dispute(read_ledger(cli._ledger_path(args)), args.seq, args.claim or "", cli.get_key(None), args.by or "")
     out = Path(args.out or f"{doc['id']}.json")
     out.write_text(json.dumps(doc, indent=2) + "\n", "utf-8")
@@ -507,8 +522,8 @@ def register(sub, pol) -> None:
     p.add_argument("--out")
     p.add_argument("--ledger")
     p.set_defaults(fn=cmd_export)
-    p = sub.add_parser("dispute", help="a signed dispute record from a receipt, with a first finding by fixed rules")
-    p.add_argument("action", choices=["open", "verify"])
+    p = sub.add_parser("dispute", help="a signed dispute record from a receipt, with a first finding by fixed rules; send puts it in Verfy Cloud")
+    p.add_argument("action", choices=["open", "verify", "send"])
     p.add_argument("file", nargs="?")
     p.add_argument("--seq", type=int)
     p.add_argument("--claim")
