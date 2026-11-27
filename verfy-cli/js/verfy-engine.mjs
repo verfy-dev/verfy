@@ -1457,9 +1457,34 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     while ((m = re.exec(text)) !== null) { out.push(m[0]); if (m[0] === "") re.lastIndex++; }
     return out;
   }
+  // ICAO 9303 check digit: weights 7, 3, 1 over 0-9, A=10 .. Z=35, < = 0, modulo 10
+  function mrzDigit(field) {
+    var sum = 0;
+    for (var i = 0; i < field.length; i++) {
+      var c = field[i], v = c === "<" ? 0 : c >= "0" && c <= "9" ? Number(c) : c.charCodeAt(0) - 55;
+      sum += v * [7, 3, 1][i % 3];
+    }
+    return sum % 10;
+  }
+  // the second line of a passport's machine-readable zone (TD3), with all four check digits right
+  function mrzOk(line) {
+    if (line.length !== 44) return false;
+    var at = function (i) { return line[i] === "<" ? 0 : Number(line[i]); };
+    return mrzDigit(line.slice(0, 9)) === at(9) && mrzDigit(line.slice(13, 19)) === at(19) && mrzDigit(line.slice(21, 27)) === at(27) &&
+      mrzDigit(line.slice(0, 10) + line.slice(13, 20) + line.slice(21, 43)) === at(43);
+  }
+  function phonesIn(text, p, into) {
+    ["phone", "phone_nanp"].forEach(function (key) {
+      allMatches(p[key], text).forEach(function (m) {
+        var digits = m.replace(/[^0-9]/g, "");
+        if (key === "phone_nanp") digits = "1" + digits; // the same number as +1 ...
+        if (digits.length >= 8 && digits.length <= 15) into[digits] = true;
+      });
+    });
+  }
   // personal data leaving this computer; the value itself is never repeated in the message
   function checkDlp(args, pol) {
-    var cfg = isObj(pol.dlp) ? pol.dlp : {}, personal = cfg.personal === undefined ? "ask" : cfg.personal, p = PATTERNS.dlp, out = [], emails = {};
+    var cfg = isObj(pol.dlp) ? pol.dlp : {}, personal = cfg.personal === undefined ? "ask" : cfg.personal, p = PATTERNS.dlp, out = [], emails = {}, phones = {};
     var on = personal === "ask" || personal === "deny";
     flattenStrings(args).forEach(function (pt) {
       var where = pt[0] || "arguments", text = pt[1];
@@ -1474,7 +1499,9 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
         }
         if (allMatches(p.iban, text).some(ibanOk)) out.push(F("VFY-DLP-002", personal, "Would send a bank account number (IBAN) out of this computer (in `" + where + "`)."));
         if (rx(p.ssn, "").test(text)) out.push(F("VFY-DLP-003", personal, "Would send what looks like a US social security number (in `" + where + "`)."));
+        if (allMatches(p.mrz, text).some(mrzOk)) out.push(F("VFY-DLP-007", personal, "Would send a passport's machine-readable zone (document number, birth date) out of this computer (in `" + where + "`)."));
         allMatches(p.email, text).forEach(function (e) { emails[e.toLowerCase()] = true; });
+        phonesIn(text, p, phones);
       }
       (cfg.patterns || []).forEach(function (spec, j) {
         if (isObj(spec) && typeof spec.pattern === "string" && rx(spec.pattern, spec.flags || "").test(text)) {
@@ -1485,6 +1512,8 @@ export function createEngine(PATTERNS, DEFAULT_POLICY) {
     });
     var bulk = cfg.bulk === undefined ? 5 : cfg.bulk, n = Object.keys(emails).length;
     if (on && typeof bulk === "number" && Number.isInteger(bulk) && bulk > 0 && n >= bulk) out.push(F("VFY-DLP-004", personal, "Would send " + n + " email addresses out of this computer at once."));
+    var np = Object.keys(phones).length;
+    if (on && typeof bulk === "number" && Number.isInteger(bulk) && bulk > 0 && np >= bulk) out.push(F("VFY-DLP-006", personal, "Would send " + np + " phone numbers out of this computer at once."));
     return out;
   }
 

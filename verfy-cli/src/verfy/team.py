@@ -329,6 +329,12 @@ def request_approval(home: Path, server: str, tool: str, kind: str, args_sha256:
                                                      "args_sha256": args_sha256, "findings": sent, "ttl_seconds": ttl})
 
 
+def team_url(home: Path) -> str:
+    """The Verfy Cloud address this device is enrolled with, or an empty string."""
+    team = load_team(home)
+    return str((team or {}).get("url") or "")
+
+
 def approval_status(home: Path, approval_id: str, transport: Transport | None = None) -> dict:
     team = load_team(home)
     if team is None:

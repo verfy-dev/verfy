@@ -1440,14 +1440,47 @@ def _iban_ok(s: str) -> bool:
     return int(n) % 97 == 1
 
 
+_MRZ_VALUES = {**{str(d): d for d in range(10)}, **{chr(65 + i): 10 + i for i in range(26)}, "<": 0}
+
+
+def _mrz_digit(field: str) -> int:
+    """ICAO 9303 check digit: weights 7, 3, 1 over the field's values (0-9, A=10 .. Z=35, < = 0), modulo 10."""
+    return sum(_MRZ_VALUES[c] * (7, 3, 1)[i % 3] for i, c in enumerate(field)) % 10
+
+
+def _mrz_ok(line: str) -> bool:
+    """The second line of a passport's machine-readable zone (TD3, 44 characters) with all four check digits right:
+    document number, birth date, expiry date and the composite."""
+    if len(line) != 44:
+        return False
+    def at(i: int) -> int:
+        return 0 if line[i] == "<" else int(line[i])
+    return (_mrz_digit(line[0:9]) == at(9) and _mrz_digit(line[13:19]) == at(19) and _mrz_digit(line[21:27]) == at(27)
+            and _mrz_digit(line[0:10] + line[13:20] + line[21:43]) == at(43))
+
+
+def _phones(text: str, p: dict) -> set[str]:
+    out = set()
+    for key in ("phone", "phone_nanp"):
+        for m in rx(p[key], "").finditer(text):
+            digits = re.sub(r"[^0-9]", "", m.group(0))
+            if key == "phone_nanp":
+                digits = "1" + digits  # the same number as +1 ...
+            if 8 <= len(digits) <= 15:
+                out.add(digits)
+    return out
+
+
 def _check_dlp(args: dict, pol: dict) -> list[dict]:
-    """Personal data leaving this computer: card numbers, IBANs, US social security numbers, many email addresses at
-    once, and what the policy names (``dlp.patterns``). The value itself is never repeated in the message."""
+    """Personal data leaving this computer: card numbers, IBANs, US social security numbers, a passport's
+    machine-readable zone, many email addresses or phone numbers at once (a customer list), and what the policy names
+    (``dlp.patterns``). The value itself is never repeated in the message."""
     cfg = pol.get("dlp") if isinstance(pol.get("dlp"), dict) else {}
     personal = cfg.get("personal", "ask")
     p = PATTERNS["dlp"]
     out: list[dict] = []
     emails: set[str] = set()
+    phones: set[str] = set()
     for path_, text in flatten_strings(args):
         where = path_ or "arguments"
         if personal in ("ask", "deny"):
@@ -1460,7 +1493,10 @@ def _check_dlp(args: dict, pol: dict) -> list[dict]:
                 out.append(_f("VFY-DLP-002", personal, f"Would send a bank account number (IBAN) out of this computer (in `{where}`)."))
             if rx(p["ssn"], "").search(text):
                 out.append(_f("VFY-DLP-003", personal, f"Would send what looks like a US social security number (in `{where}`)."))
+            if any(_mrz_ok(m.group(0)) for m in rx(p["mrz"], "").finditer(text)):
+                out.append(_f("VFY-DLP-007", personal, f"Would send a passport's machine-readable zone (document number, birth date) out of this computer (in `{where}`)."))
             emails.update(m.group(0).lower() for m in rx(p["email"], "").finditer(text))
+            phones.update(_phones(text, p))
         for i, spec in enumerate(cfg.get("patterns") or []):
             if isinstance(spec, dict) and isinstance(spec.get("pattern"), str) and rx(spec["pattern"], spec.get("flags", "")).search(text):
                 then = spec.get("then", "ask") if spec.get("then") in ("ask", "deny") else "ask"
@@ -1469,6 +1505,8 @@ def _check_dlp(args: dict, pol: dict) -> list[dict]:
     bulk = cfg.get("bulk", 5)
     if personal in ("ask", "deny") and isinstance(bulk, int) and not isinstance(bulk, bool) and bulk > 0 and len(emails) >= bulk:
         out.append(_f("VFY-DLP-004", personal, f"Would send {len(emails)} email addresses out of this computer at once."))
+    if personal in ("ask", "deny") and isinstance(bulk, int) and not isinstance(bulk, bool) and bulk > 0 and len(phones) >= bulk:
+        out.append(_f("VFY-DLP-006", personal, f"Would send {len(phones)} phone numbers out of this computer at once."))
     return out
 
 

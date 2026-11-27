@@ -632,6 +632,13 @@ def cmd_ledger_verify(args) -> int:
     start_prev = getattr(args, "start_after", None)
     start_seq = receipts[0].get("seq", 0) if start_prev and receipts and isinstance(receipts[0].get("seq"), int) else 0
     res = verify_ledger(receipts, pub, start_prev=start_prev, start_seq=start_seq)
+    from .passkeys import check_ledger
+    approvals = check_ledger(receipts)
+    if approvals["checked"]:
+        res["passkey_approvals"] = approvals["checked"]
+    if approvals["errors"]:
+        res["ok"] = False
+        res["errors"] = list(res.get("errors") or []) + approvals["errors"]
     if not res["count"]:
         print(json.dumps(res, indent=2) if args.json else f"{c('NOTHING TO VERIFY', '33;1')}  {path} holds no receipts.")
         return 1 if args.ledger else 0  # a file someone handed over, or a machine that has done nothing yet
@@ -639,6 +646,8 @@ def cmd_ledger_verify(args) -> int:
         print(json.dumps(res, indent=2))
     elif res["ok"]:
         print(f"{c('VERIFIED', '32;1')}  {res['count']} receipts, signed by {key_id(pub)}, chain intact.  head {res['head']}")
+        if res.get("passkey_approvals"):
+            print(f"          {res['passkey_approvals']} team approval(s) signed with a passkey: each signature covers that call's arguments hash.")
     else:
         print(f"{c('FAILED', '31;1')}  {len(res['errors'])} problem(s) in {res['count']} receipts:")
         for e in res["errors"]:

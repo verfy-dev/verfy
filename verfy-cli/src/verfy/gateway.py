@@ -285,7 +285,9 @@ class Gateway:
             self._block(msg, action, decision, f"Verfy could not reach your team to approve this call ({e}), so it was not run.")
             return
         if state.get("status") == "approved":
+            from .passkeys import approval_record
             decision["approved_by"] = "team:" + str(state.get("decided_by") or "admin")[:90]
+            decision["approval"] = approval_record(req["id"], state, teamlib.team_url(self.home))
             self._forward(msg, action, decision)
             return
         decision["approved_by"] = None

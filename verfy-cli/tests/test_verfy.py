@@ -317,6 +317,8 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(sent[-1][1], "https://verfy.example.test/api/v1/approvals/a1")
         r = read_ledger(home / "ledger.jsonl")[0]
         self.assertEqual((r["decision"]["approved_by"], r["outcome"]["status"]), ("team:Alice", "ok"))
+        # 0.31.0: the approval itself is in the receipt (no passkey proofs here: Alice approved without one)
+        self.assertEqual(r["decision"]["approval"], {"id": "a1", "origin": "https://verfy.example.test"})
 
         transport, _ = self.fake_team([{"status": "rejected", "note": "not on Friday"}])
         rep, _, home = self.run_gateway(self.INIT + [ask], policy={"on_ask": "team"}, home=self.team_home(), team_transport=transport, poll_seconds=0.01)
