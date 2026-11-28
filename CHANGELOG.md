@@ -2,6 +2,14 @@
 
 What changed in the Verfy CLI (`pip install verfy`) and the website. Newest first. Every CLI version is on [PyPI](https://pypi.org/project/verfy/#history) and as standalone builds on the [releases page](https://github.com/verfy-dev/verfy-releases/releases).
 
+## 0.33.0 (2026-11-28)
+
+Who answers for an agent's action, as open rules, and one file for whoever settles a dispute.
+
+- **Open responsibility rules** (`verfy.liability/1`, [docs/RESPONSIBILITY_RULES.md](docs/RESPONSIBILITY_RULES.md)): nine fixed rules that read the signed evidence and name the side the action came from: nobody (it was blocked), the agent's operator, the person who approved it with a passkey, or the tool's author when the tool changed from the locked one. No model, no judgement of intent; what they leave open is written down. `verfy claim rules` prints them.
+- **`verfy claim`**: `build` puts the dispute record, the ledger's check, the passkey approvals checked offline, whether the tool matched `verfy.lock`, the rule's answer and, when there is one, the arbitrator's verdict from Verfy Cloud into one signed file (`verfy.claim/1`). `verify` checks all of it again, offline, including that the rule matches the evidence, so a claim cannot name a different party under a valid signature. Nothing is sent: Verfy has no insurance or arbitration partner yet.
+- **Signatures inside AP2 mandates**: `verfy mandate check --key signer.jwk` also checks the merchant's signature in a CartMandate or the person's in a PaymentMandate (ES256, EdDSA, RS256; `exp` and `nbf`), VFY-MDT-006. The x402 payment signature (EIP-712 on secp256k1) is still left to the payment network.
+
 ## 0.32.0 (2026-11-27)
 
 Passkey approvals can be checked anywhere, and the trust registry gives facts release by release.

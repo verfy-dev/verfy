@@ -7,7 +7,7 @@ Any program can sign receipts for its own actions too: ``verfy.record()``,
 """
 
 
-__version__ = "0.32.0"
+__version__ = "0.33.0"
 
 # `canonical` is also the name of a submodule: bound here, or importing the submodule would put the module in its place
 from .canonical import canonical, digest  # noqa: E402

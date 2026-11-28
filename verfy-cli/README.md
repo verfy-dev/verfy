@@ -85,7 +85,7 @@ One HTML file with no script and nothing loaded from outside. It holds no secret
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/verfy-dev/verfy
-    rev: cli-v0.32.0
+    rev: cli-v0.33.0
     hooks:
       - id: verfy-mcp-config     # static check of the MCP configs in the commit; starts nothing
 ```
@@ -250,7 +250,7 @@ Commit `verfy.lock`; a pull request that changes a tool then fails until someone
 ```yaml
 - uses: actions/setup-python@v7
   with: { python-version: "3.13" }
-- run: pip install "verfy==0.32.0" && verfy lock check --config .mcp.json --lock verfy.lock
+- run: pip install "verfy==0.33.0" && verfy lock check --config .mcp.json --lock verfy.lock
 ```
 
 `lock check` starts each stdio server command from the config, as your MCP client would: pin package versions and pass keys as CI secrets. Remote servers (a `url` in the config) are asked for their tools over Streamable HTTP with the config's `headers`. Write a key as `${MCP_TOKEN}` and set `MCP_TOKEN` from a CI secret:
@@ -664,6 +664,9 @@ JavaScript, tested against the same vectors.
 verfy agent create buyer-bot      # its own key, certified by yours: receipts prove whose agent acted
 verfy agent verify ~/.verfy/agents/buyer-bot/cert.json --owner OWNER_KEY --ledger ~/.verfy/agents/buyer-bot/ledger.jsonl
 verfy mandate check cart.json --amount 42.50 --currency USD --payee shop   # AP2 mandates, x402 payment requirements
+verfy mandate check cart.json --amount 42.50 --key merchant.jwk               # also the merchant's or user's signature inside
+verfy claim build dispute.json                  # one signed file for an insurer or arbitrator (open responsibility rules)
+verfy claim verify clm_....json                 # anyone checks it again, offline
 ```
 
 ```python
