@@ -437,10 +437,57 @@ def cmd_agent(args) -> int:
     return 0
 
 
+def cmd_claim(args) -> int:
+    from . import claim, liability
+    from .receipts import read_ledger
+    cli = _cli()
+    if args.action == "rules":
+        print(f"Verfy responsibility rules ({liability.VERSION}):")
+        for code, (party, why) in liability.RULES.items():
+            print(f"  {code}  {party:<15} {why}")
+        return 0
+    if not args.file:
+        print(f"usage: verfy claim {args.action} FILE", file=sys.stderr)
+        return 2
+    doc = json.loads(Path(args.file).read_text("utf-8"))
+    if args.action == "verify":
+        res = claim.verify(doc)
+        print(("VERIFIED" if res["ok"] else "FAILED") + f"  responsibility: {res.get('party')} ({res.get('rule')})")
+        for p in res["problems"]:
+            print("  " + p)
+        return 0 if res["ok"] else 1
+    from .lock import load_lock
+    verdict = json.loads(Path(args.verdict).read_text("utf-8")) if args.verdict else None
+    lock = load_lock(args.lock) if args.lock else None
+    try:
+        out = claim.build(doc, read_ledger(cli._ledger_path(args)), cli.get_key(None), verdict=verdict, lock=lock)
+    except ValueError as e:
+        print(f"verfy claim: {e}", file=sys.stderr)
+        return 1
+    path = Path(args.out or f"{out['id']}.json")
+    path.write_text(json.dumps(out, indent=2) + "\n", "utf-8")
+    li = out["liability"]
+    print(f"Responsibility ({li['rule']}): {li['party']}. {li['why']}")
+    if li.get("open"):
+        print(f"  Open: {li['open']}")
+    print(f"Wrote {path}. Anyone can check it: verfy claim verify {path}")
+    print("Nothing was sent: Verfy has no insurance or arbitration partner yet.")
+    return 0
+
+
 def cmd_mandate(args) -> int:
     from . import mandate
     m = json.loads(Path(args.file).read_text("utf-8"))
     res = mandate.check(m, amount=args.amount, currency=args.currency, payee=args.payee)
+    if args.key:
+        found = mandate.check_authorization(m, json.loads(Path(args.key).read_text("utf-8")))
+        res["findings"] += found
+        if any(f["verdict"] == "deny" for f in found):
+            res["verdict"] = "deny"
+        elif found and res["verdict"] == "allow":
+            res["verdict"] = "ask"
+        elif not found:
+            print("Signature: checked with the key given.")
     print(f"{res['verdict'].upper()}  ({res['kind']})")
     for f in res["findings"]:
         print(f"  [{f['rule']}] {f['message']}")
@@ -546,4 +593,14 @@ def register(sub, pol) -> None:
     p.add_argument("--amount", required=True)
     p.add_argument("--currency")
     p.add_argument("--payee")
+    p.add_argument("--key", help="the signer's public JWK (JSON file): also check the merchant's or user's signature inside")
     p.set_defaults(fn=cmd_mandate)
+
+    p = sub.add_parser("claim", help="one signed file for an insurer or arbitrator: dispute, passkeys, responsibility rule, verdict")
+    p.add_argument("action", choices=["build", "verify", "rules"])
+    p.add_argument("file", nargs="?", help="build: the dispute record; verify: the claim")
+    p.add_argument("--verdict", help="build: the arbitrator's verdict file (verfy.verdict/1)")
+    p.add_argument("--lock", help="build: verfy.lock, to see whether the tool changed under the agent")
+    p.add_argument("--out")
+    p.add_argument("--ledger")
+    p.set_defaults(fn=cmd_claim)

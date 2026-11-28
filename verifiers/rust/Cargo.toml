@@ -1,6 +1,6 @@
 [package]
 name = "verfy-verify"
-version = "0.32.0"
+version = "0.33.0"
 edition = "2021"
 rust-version = "1.70"
 description = "Check Verfy receipts and ledgers (verfy.receipt/1): canonical JSON, Ed25519 signatures, the hash chain, passkey approvals"
